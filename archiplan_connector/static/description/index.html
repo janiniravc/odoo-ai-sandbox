@@ -1,0 +1,40 @@
+<div class="container">
+  <p>Import Odoo sales orders into ArchiPlan, plan people and machines, and review production schedules in Manufacturing.</p>
+  <p><img src="cover.gif" class="img-fluid" alt="ArchiPlan Schedule for Odoo"></p>
+  <h2>Features</h2>
+  <ul>
+    <li>Import selected Odoo sales orders with status and creation date filters.</li>
+    <li>Preview products, quantities, and customer references before importing.</li>
+    <li>Plan production steps across people and machines in a schedule chart.</li>
+    <li>Open a step to review its order, timing, and resource assignment.</li>
+    <li>Configure read-only Odoo access for ArchiPlan.</li>
+  </ul>
+  <h2>Screenshots</h2>
+  <p><img src="01-schedule-overview.png" class="img-fluid" alt="Schedule overview"></p>
+  <p>Open Manufacturing → Planning → ArchiPlan Schedule to see 25 orders and 75 scheduled steps across the Oct 23–Nov 17 work window with plan performance KPIs.</p>
+  <p><img src="02-schedule-order-details.png" class="img-fluid" alt="SO-2041 selected in the schedule"></p>
+  <p>Select SO-2041 to follow its linked steps and inspect start, finish, and on-time status.</p>
+  <p><img src="03-schedule-zoomed.png" class="img-fluid" alt="Zoomed schedule with SO-2041 selected"></p>
+  <p>Zoom to Oct 26–28 to inspect hourly order labels and the selected SO-2041 sequence across resource rows.</p>
+  <p><img src="04-odoo-choose-orders.png" class="img-fluid" alt="Choose Odoo sales orders to import"></p>
+  <p>Filter Odoo sales orders by status and creation date to confirm 20 matching orders before importing.</p>
+  <p><img src="05-odoo-import-preview.png" class="img-fluid" alt="Odoo order import preview"></p>
+  <p>Review 20 Odoo sales order rows with customer references, products, and quantities before importing.</p>
+  <p><img src="06-odoo-archiplan-access.png" class="img-fluid" alt="ArchiPlan access settings wizard"></p>
+  <p>Open the ArchiPlan access wizard in Odoo Settings to review connection values with the API key masked.</p>
+  <p><img src="07-copilot-adds-products.png" class="img-fluid" alt="Copilot adding furniture products"></p>
+  <p>Ask Copilot to add three furniture products and see its saved products in the workspace list.</p>
+  <p><img src="08-resource-editor.png" class="img-fluid" alt="Panel Saw A resource editor"></p>
+  <p>Select Panel Saw A to review its machine group, operation rules, and weekday working hours.</p>
+  <p><img src="09-product-editor.png" class="img-fluid" alt="Oak Bookcase product editor"></p>
+  <p>Open Oak Bookcase and expand Cut panels to inspect its duration, resource and skill requirements, and step timing rules.</p>
+  <h2>Setup</h2>
+  <ol>
+    <li>Install ArchiPlan Connector in Odoo.</li>
+    <li>Open Settings and configure the ArchiPlan URL and view-only schedule link.</li>
+    <li>Use Create ArchiPlan access to generate credentials for a dedicated read-only internal user.</li>
+    <li>In ArchiPlan, open Orders → Import → From Odoo and connect with the generated access details.</li>
+    <li>Select orders, review the import preview, and import them into ArchiPlan.</li>
+  </ol>
+  <p>Learn more at <a href="https://archiplan.io">archiplan.io</a> · <a href="https://archiplan.io/privacy">Privacy policy</a></p>
+</div>

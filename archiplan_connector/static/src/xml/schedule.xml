@@ -1,0 +1,20 @@
+<templates xml:space="preserve">
+    <t t-name="archiplan_connector.Schedule">
+        <div class="o_archiplan_schedule d-flex flex-column h-100">
+            <iframe t-if="this.state.link" t-att-src="this.state.link" title="ArchiPlan Schedule" class="w-100 h-100 border-0"/>
+            <div t-elif="this.state.error" class="d-flex flex-grow-1 align-items-center justify-content-center">
+                <div class="text-center">
+                    <h2>Unable to load your ArchiPlan schedule</h2>
+                    <p>Check your connection and reload this page.</p>
+                </div>
+            </div>
+            <div t-else="" class="d-flex flex-grow-1 align-items-center justify-content-center">
+                <div class="text-center">
+                    <h2>Connect your ArchiPlan schedule</h2>
+                    <p>Set a Schedule link in ArchiPlan settings to display it here.</p>
+                    <button class="btn btn-primary" t-on-click="this.openSettings">Open ArchiPlan settings</button>
+                </div>
+            </div>
+        </div>
+    </t>
+</templates>

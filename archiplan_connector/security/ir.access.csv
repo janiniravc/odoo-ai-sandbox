@@ -1,0 +1,8 @@
+id,name,model_id,group_id/id,operation,domain
+access_archiplan_sale_order,ArchiPlan read sale orders,sale.order,group_archiplan_readonly,r,
+access_archiplan_sale_order_line,ArchiPlan read sale order lines,sale.order.line,group_archiplan_readonly,r,
+access_archiplan_product_product,ArchiPlan read products,product.product,group_archiplan_readonly,r,
+access_archiplan_product_template,ArchiPlan read product templates,product.template,group_archiplan_readonly,r,
+access_archiplan_uom_uom,ArchiPlan read units,uom.uom,group_archiplan_readonly,r,
+access_archiplan_res_partner,ArchiPlan read contacts,res.partner,group_archiplan_readonly,r,"[(1, '=', 1)]"
+access_archiplan_access_wizard,ArchiPlan access wizard,archiplan.access.wizard,base.group_system,crud,

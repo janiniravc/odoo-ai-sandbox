@@ -1,0 +1,9 @@
+<odoo>
+    <record id="action_archiplan_schedule" model="ir.actions.client">
+        <field name="name">ArchiPlan Schedule</field>
+        <field name="tag">archiplan_connector.schedule</field>
+    </record>
+    <menuitem id="menu_archiplan_schedule" name="ArchiPlan Schedule"
+        parent="mrp.mrp_planning_menu_root" action="action_archiplan_schedule"
+        groups="mrp.group_mrp_user,mrp.group_mrp_manager" sequence="90"/>
+</odoo>

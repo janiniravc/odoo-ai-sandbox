@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="view_partner_form_ai_summary" model="ir.ui.view">
+        <field name="name">res.partner.form.ai.summary</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet" position="inside">
+                <group string="AI Assistant">
+                    <button
+                        name="action_generate_ai_summary"
+                        type="object"
+                        string="Generate AI Summary"
+                        class="btn-primary"
+                    />
+                    <field name="ai_summary" readonly="1"/>
+                    <button
+                        name="action_generate_structured_ai_summary"
+                        type="object"
+                        string="Generate Structured Analysis"
+                        class="btn-secondary"
+                    />
+                    <field name="ai_recommended_action" readonly="1"/>
+                    <field name="ai_follow_up_needed" readonly="1"/>
+                </group>
+            </xpath>
+        </field>
+    </record>
+</odoo>

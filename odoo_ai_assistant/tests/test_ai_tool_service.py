@@ -23,7 +23,7 @@ class TestOdooAIToolService(TransactionCase):
         cls.ai_group = cls.env.ref(
             "odoo_ai_assistant.group_ai_assistant_user"
         )
-        cls.ai_group.write({"users": [(4, cls.env.user.id)]})
+        cls.ai_group.write({"user_ids": [(4, cls.env.user.id)]})
 
     def setUp(self):
         super().setUp()

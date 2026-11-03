@@ -133,6 +133,64 @@ class TestOdooAIToolService(TransactionCase):
         )
 
 
+
+    @patch(f"{PATCH_PATH}.OdooTools")
+    @patch(f"{PATCH_PATH}.OdooAIService._get_client")
+    def test_rejects_too_many_tool_calls_in_one_response(
+        self,
+        mock_get_client,
+        mock_odoo_tools,
+    ):
+        mock_get_client.return_value = self.mock_client
+        calls = [
+            self._function_call(call_id=f"call_{index}")
+            for index in range(
+                OdooAIToolService.MAX_TOOL_CALLS_PER_RESPONSE + 1
+            )
+        ]
+        self.mock_client.responses.create.return_value = (
+            self._response(output=calls)
+        )
+
+        with self.assertRaisesRegex(UserError, "too many tools at once"):
+            OdooAIToolService.ask(self.env, self.question)
+
+        mock_odoo_tools.lookup_customers.assert_not_called()
+        self.mock_client.responses.create.assert_called_once()
+
+    @patch(f"{PATCH_PATH}.OdooTools")
+    @patch(f"{PATCH_PATH}.OdooAIService._get_client")
+    def test_enforces_total_tool_call_limit_across_rounds(
+        self,
+        mock_get_client,
+        mock_odoo_tools,
+    ):
+        mock_get_client.return_value = self.mock_client
+        first_batch = [
+            self._function_call(call_id=f"first_{index}")
+            for index in range(3)
+        ]
+        second_batch = [
+            self._function_call(call_id=f"second_{index}")
+            for index in range(3)
+        ]
+        self.mock_client.responses.create.side_effect = [
+            self._response(output=first_batch),
+            self._response(output=second_batch),
+        ]
+
+        with self.assertRaisesRegex(UserError, "total tool-call limit"):
+            OdooAIToolService.ask(self.env, self.question)
+
+        self.assertEqual(
+            mock_odoo_tools.lookup_customers.call_count,
+            3,
+        )
+        self.assertEqual(
+            self.mock_client.responses.create.call_count,
+            2,
+        )
+
     @patch.dict("os.environ", {}, clear=True)
     def test_missing_api_key_returns_safe_configuration_error(self):
         with self.assertRaisesRegex(

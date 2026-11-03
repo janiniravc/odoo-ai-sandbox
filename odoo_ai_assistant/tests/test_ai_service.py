@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 from odoo.tests.common import TransactionCase
+from odoo.exceptions import UserError
 import openai
 
 from ..services.ai_service import (
@@ -80,7 +81,7 @@ class TestOdooAIService(TransactionCase):
     @patch.dict("os.environ", {}, clear=True)
     def test_missing_api_key_is_rejected(self):
         with self.assertRaisesRegex(
-            ValueError, "OPENAI_API_KEY"
+            UserError, "AI service is not configured"
         ):
             OdooAIService.generate_customer_analysis(
                 customer_name="Example Ltd.",
@@ -95,7 +96,7 @@ class TestOdooAIService(TransactionCase):
             openai.APITimeoutError(request=MagicMock())
         )
 
-        with self.assertRaisesRegex(ValueError, "timed out"):
+        with self.assertRaisesRegex(UserError, "timed out"):
             OdooAIService.generate_customer_analysis(
                 customer_name="Example Ltd.",
                 is_company=True,
@@ -112,7 +113,7 @@ class TestOdooAIService(TransactionCase):
             )
         )
 
-        with self.assertRaisesRegex(ValueError, "rate limit"):
+        with self.assertRaisesRegex(UserError, "busy"):
             OdooAIService.generate_customer_analysis(
                 customer_name="Example Ltd.",
                 is_company=True,
@@ -127,7 +128,7 @@ class TestOdooAIService(TransactionCase):
             openai.APIConnectionError(request=MagicMock())
         )
 
-        with self.assertRaisesRegex(ValueError, "connect"):
+        with self.assertRaisesRegex(UserError, "temporarily unavailable"):
             OdooAIService.generate_customer_analysis(
                 customer_name="Example Ltd.",
                 is_company=True,
@@ -183,6 +184,31 @@ class TestOdooAIService(TransactionCase):
         )
 
         with self.assertRaisesRegex(ValueError, "empty response"):
+            OdooAIService.generate_text("Create a short summary")
+
+
+    @patch.dict("os.environ", {}, clear=True)
+    def test_missing_api_key_for_text_generation_is_user_friendly(self):
+        with self.assertRaisesRegex(
+            UserError,
+            "AI service is not configured",
+        ):
+            OdooAIService.generate_text("Create a short summary")
+
+    @patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"})
+    @patch("odoo.addons.odoo_ai_assistant.services.ai_service.OpenAI")
+    def test_text_generation_rate_limit_is_user_friendly(
+        self, mock_openai_class
+    ):
+        mock_openai_class.return_value.responses.create.side_effect = (
+            openai.RateLimitError(
+                message="Rate limit exceeded",
+                response=MagicMock(),
+                body=None,
+            )
+        )
+
+        with self.assertRaisesRegex(UserError, "AI service is busy"):
             OdooAIService.generate_text("Create a short summary")
 
     def test_empty_prompt_is_rejected(self):

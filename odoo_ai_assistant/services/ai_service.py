@@ -4,7 +4,6 @@ import os
 import openai
 from openai import OpenAI
 from pydantic import BaseModel, ConfigDict, Field
-from openai import APIConnectionError, APITimeoutError, APIStatusError
 from odoo.exceptions import UserError
 
 
@@ -44,8 +43,9 @@ class OdooAIService:
         api_key = os.environ.get("OPENAI_API_KEY")
 
         if not api_key or not api_key.strip():
-            raise ValueError(
-                "OPENAI_API_KEY environment variable is not configured."
+            raise UserError(
+                "The AI service is not configured. "
+                "Please contact your administrator."
             )
 
         return OpenAI(
@@ -72,30 +72,31 @@ class OdooAIService:
             return operation()
 
         except openai.APITimeoutError:
-            raise ValueError(
-                "The AI provider request timed out. Please try again."
+            raise UserError(
+                "The AI service request timed out. Please try again."
             ) from None
 
         except openai.APIConnectionError:
-            raise ValueError(
-                "Could not connect to the AI provider. Please try again."
+            raise UserError(
+                "The AI service is temporarily unavailable. "
+                "Please check the connection and try again."
             ) from None
 
         except openai.RateLimitError:
-            raise ValueError(
-                "The AI provider rate limit was reached. Please try again later."
+            raise UserError(
+                "The AI service is busy. Please try again later."
             ) from None
 
-        except openai.APIStatusError as exc:
-            # Log the status code, not request data or credentials.
-            status_code = exc.status_code
-            raise ValueError(
-                f"The AI provider returned an HTTP error ({status_code})."
+        except openai.APIStatusError:
+            # Do not expose provider response bodies, headers, or credentials.
+            raise UserError(
+                "The AI service could not process the request. "
+                "Please try again later."
             ) from None
 
         except openai.APIError:
-            raise ValueError(
-                "The AI provider encountered an error. Please try again."
+            raise UserError(
+                "The AI service encountered an error. Please try again later."
             ) from None
 
     @staticmethod
@@ -103,25 +104,13 @@ class OdooAIService:
         OdooAIService._validate_prompt(prompt)
         client = OdooAIService._get_client()
 
-        try:
-
-            response = OdooAIService._call_provider(
-                lambda: client.responses.create(
-                    model=OdooAIService.MODEL,
-                    input=prompt,
-                    max_output_tokens=OdooAIService.MAX_TEXT_OUTPUT_TOKENS,
-                )
+        response = OdooAIService._call_provider(
+            lambda: client.responses.create(
+                model=OdooAIService.MODEL,
+                input=prompt,
+                max_output_tokens=OdooAIService.MAX_TEXT_OUTPUT_TOKENS,
             )
-        except (APIConnectionError, APITimeoutError) as exc:
-            raise UserError(
-                "The AI service is temporarily unavailable. "
-                "Please check your internet connection and try again."
-            ) from exc
-        except APIStatusError as exc:
-            raise UserError(
-                "The AI service could not process your request. "
-                "Please try again later."
-            ) from exc
+        )
 
         if getattr(response, "status", None) != "completed":
             raise ValueError(

@@ -4,12 +4,6 @@ from odoo.exceptions import AccessError, UserError
 
 from .ai_service import OdooAIService
 from .odoo_tools import OdooTools
-from openai import (
-    APIConnectionError,
-    APITimeoutError,
-    APIStatusError,
-    APIError,
-)
 
 
 class OdooAIToolService:
@@ -79,27 +73,14 @@ class OdooAIToolService:
 
         for _round in range(cls.MAX_TOOL_ROUNDS + 1):
 
-            try:
-                response = client.responses.create(
+            response = OdooAIService._call_provider(
+                lambda: client.responses.create(
                     model=OdooAIService.MODEL,
                     input=input_items,
                     tools=cls.TOOLS,
                     max_output_tokens=OdooAIService.MAX_TEXT_OUTPUT_TOKENS,
                 )
-            except (APIConnectionError, APITimeoutError) as exc:
-                raise UserError(
-                    "The AI service is temporarily unavailable. "
-                    "Please check your internet connection and try again."
-                ) from exc
-            except APIStatusError as exc:
-                raise UserError(
-                    "The AI service could not process your request. "
-                    "Please try again later."
-                ) from exc
-            except APIError as exc:
-                raise UserError(
-                    "The AI service encountered an error. Please try again later."
-                ) from exc
+            )
 
             if response.status != "completed":
                 raise UserError(

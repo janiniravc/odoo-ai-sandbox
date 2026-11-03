@@ -106,6 +106,8 @@ class TestOdooAIToolService(TransactionCase):
             self.env,
             query="ABC Ltd.",
             limit=5,
+            include_email=True,
+            include_location=True,
         )
 
         self.assertEqual(

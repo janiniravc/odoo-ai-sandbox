@@ -20,7 +20,7 @@ class TestOdooAIToolService(TransactionCase):
     def setUp(self):
         super().setUp()
 
-        self.question = "Find the customer named ABC Ltd."
+        self.question = "Find the customer named ABC Ltd. and show their email and city."
 
         self.mock_client = MagicMock()
 

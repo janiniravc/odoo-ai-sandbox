@@ -1,5 +1,5 @@
 from odoo import fields, models, _
-from odoo.exceptions import UserError
+from odoo.exceptions import AccessError, UserError
 
 from ..services.ai_tool_service import OdooAIToolService
 
@@ -19,6 +19,10 @@ class OdooAIChatWizard(models.TransientModel):
 
     def action_ask_ai(self):
         self.ensure_one()
+        if not self.env.user.has_group(
+            "odoo_ai_assistant.group_ai_assistant_user"
+        ):
+            raise AccessError(_("You are not allowed to use the AI Assistant."))
 
         if not self.question or not self.question.strip():
             raise UserError(_("Please enter a question."))

@@ -20,7 +20,7 @@ class TestOdooAIToolService(TransactionCase):
     def setUp(self):
         super().setUp()
 
-        self.question = "Find the customer named ABC Ltd."
+        self.question = "Find the customer named ABC Ltd. and show their email and city."
 
         self.mock_client = MagicMock()
 
@@ -106,6 +106,8 @@ class TestOdooAIToolService(TransactionCase):
             self.env,
             query="ABC Ltd.",
             limit=5,
+            include_email=True,
+            include_location=True,
         )
 
         self.assertEqual(

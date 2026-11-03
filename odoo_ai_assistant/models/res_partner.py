@@ -15,18 +15,21 @@ class ResPartner(models.Model):
         string="AI Customer Summary",
         readonly=True,
         copy=False,
+        groups="odoo_ai_assistant.group_ai_assistant_user",
     )
 
     ai_recommended_action = fields.Text(
         string="AI Recommended Action",
         readonly=True,
         copy=False,
+        groups="odoo_ai_assistant.group_ai_assistant_user",
     )
 
     ai_follow_up_needed = fields.Boolean(
         string="AI Follow-up Needed",
         readonly=True,
         copy=False,
+        groups="odoo_ai_assistant.group_ai_assistant_user",
     )
 
     _AI_FIELDS = {
@@ -49,8 +52,15 @@ class ResPartner(models.Model):
 
         return super(ResPartner, self).write(vals)
 
+    def _check_ai_assistant_group(self):
+        if not self.env.user.has_group(
+            "odoo_ai_assistant.group_ai_assistant_user"
+        ):
+            raise AccessError(_("You are not allowed to use AI customer insights."))
+
     def action_generate_ai_summary(self):
         self.ensure_one()
+        self._check_ai_assistant_group()
 
         # Verify the current user can read this customer.
         self.check_access("read")
@@ -61,7 +71,6 @@ Create a concise business summary for this Odoo customer.
 
 Customer name: {self.name or "Not provided"}
 Company: {"Yes" if self.is_company else "No"}
-Customer email available: {"Yes" if self.email else "No"}
 
 Requirements:
 - Describe the customer using only the information provided.
@@ -105,6 +114,7 @@ Requirements:
 
     def action_generate_structured_ai_summary(self):
         self.ensure_one()
+        self._check_ai_assistant_group()
 
         self.check_access("read")
         self.check_access("write")

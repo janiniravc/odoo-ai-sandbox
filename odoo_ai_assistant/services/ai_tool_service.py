@@ -20,7 +20,9 @@ class OdooAIToolService:
             "name": "lookup_customers",
             "description": (
                 "Search active Odoo contacts by customer name or email. "
-                "Use this tool when the user asks to find or identify a customer. "
+                "Return only customer name and company status by default. "
+                "Optional email and location details are included only when "
+                "the original user question explicitly requests them. "
                 "Only return records the current Odoo user is allowed to read."
             ),
             "parameters": {
@@ -53,6 +55,19 @@ class OdooAIToolService:
             raise UserError(
                 f"Your question cannot exceed {cls.MAX_QUESTION_CHARS} characters."
             )
+
+        if not env.user.has_group("odoo_ai_assistant.group_ai_assistant_user"):
+            raise AccessError("You are not allowed to use the AI Assistant.")
+
+        # Only disclose optional contact details when the original user
+        # question explicitly asks for them. The model cannot widen this scope.
+        question_lower = question.lower()
+        include_email = any(term in question_lower for term in (
+            "email", "e-mail", "mail address", "contact details"
+        ))
+        include_location = any(term in question_lower for term in (
+            "city", "country", "location", "address"
+        ))
 
         client = OdooAIService._get_client()
         input_items = [
@@ -165,6 +180,8 @@ class OdooAIToolService:
                         env,
                         query=query.strip(),
                         limit=limit,
+                        include_email=include_email,
+                        include_location=include_location,
                     )
                     # Mark database-derived values as untrusted data. The JSON
                     # envelope keeps customer-controlled strings in data fields.

@@ -8,11 +8,14 @@ class OdooTools:
     MAX_QUERY_LENGTH = 100
 
     @staticmethod
-    def lookup_customers(env, query, limit=5):
-        """Find active customer/partner records visible to the current user.
+    def lookup_customers(
+        env, query, limit=5, include_email=False, include_location=False
+    ):
+        """Find active partners visible to the current user.
 
-        This method deliberately does not use sudo(), create(), write(),
-        or unlink(). Odoo's normal access rights and record rules apply.
+        Contact details are excluded by default. The caller may request only
+        the specific optional fields relevant to the user's original question.
+        Normal Odoo access rights and record rules always apply.
         """
         if env.su:
             raise AccessError(
@@ -23,7 +26,6 @@ class OdooTools:
             raise UserError("Please provide a customer name or email to search.")
 
         query = query.strip()
-
         if len(query) > OdooTools.MAX_QUERY_LENGTH:
             raise UserError(
                 f"Search text cannot exceed "
@@ -41,10 +43,12 @@ class OdooTools:
                 f"{OdooTools.MAX_RESULTS}."
             )
 
-        Partner = env["res.partner"]
+        if not isinstance(include_email, bool) or not isinstance(
+            include_location, bool
+        ):
+            raise UserError("Optional customer field flags must be boolean.")
 
-        # Check permissions explicitly; search_read also applies normal
-        # record rules and does not bypass them.
+        Partner = env["res.partner"]
         Partner.check_access("read")
 
         domain = [
@@ -53,32 +57,33 @@ class OdooTools:
             ("name", "ilike", query),
             ("email", "ilike", query),
         ]
+        fields_to_read = ["id", "name", "is_company"]
+        if include_email:
+            fields_to_read.append("email")
+        if include_location:
+            fields_to_read.extend(["city", "country_id"])
 
         records = Partner.search_read(
             domain,
-            fields=[
-                "id",
-                "name",
-                "is_company",
-                "email",
-                "city",
-                "country_id",
-            ],
+            fields=fields_to_read,
             limit=limit,
             order="name, id",
         )
 
         results = []
         for record in records:
-            country = record.get("country_id")
-            results.append({
+            item = {
                 "id": record["id"],
                 "name": record["name"],
                 "is_company": record["is_company"],
-                "email": record.get("email") or None,
-                "city": record.get("city") or None,
-                "country": country[1] if country else None,
-            })
+            }
+            if include_email:
+                item["email"] = record.get("email") or None
+            if include_location:
+                country = record.get("country_id")
+                item["city"] = record.get("city") or None
+                item["country"] = country[1] if country else None
+            results.append(item)
 
         return {
             "returned_count": len(results),

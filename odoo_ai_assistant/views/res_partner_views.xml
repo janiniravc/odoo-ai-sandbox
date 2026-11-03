@@ -6,7 +6,7 @@
         <field name="inherit_id" ref="base.view_partner_form"/>
         <field name="arch" type="xml">
             <xpath expr="//sheet" position="inside">
-                <group string="AI Assistant">
+                <group string="AI Assistant" groups="odoo_ai_assistant.group_ai_assistant_user">
                     <button
                         name="action_generate_ai_summary"
                         type="object"

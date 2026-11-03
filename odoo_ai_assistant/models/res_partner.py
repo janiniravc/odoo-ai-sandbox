@@ -15,6 +15,7 @@ class ResPartner(models.Model):
         string="AI Customer Summary",
         readonly=True,
         copy=False,
+        groups="odoo_ai_assistant.group_ai_assistant_user",
     )
 
     ai_recommended_action = fields.Text(
@@ -57,6 +58,7 @@ class ResPartner(models.Model):
 
     def action_generate_ai_summary(self):
         self.ensure_one()
+        self._check_ai_assistant_group()
 
         # Verify the current user can read this customer.
         self.check_access("read")
@@ -111,6 +113,7 @@ Requirements:
 
     def action_generate_structured_ai_summary(self):
         self.ensure_one()
+        self._check_ai_assistant_group()
 
         self.check_access("read")
         self.check_access("write")

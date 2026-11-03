@@ -49,6 +49,12 @@ class ResPartner(models.Model):
 
         return super(ResPartner, self).write(vals)
 
+    def _check_ai_assistant_group(self):
+        if not self.env.user.has_group(
+            "odoo_ai_assistant.group_ai_assistant_user"
+        ):
+            raise AccessError(_("You are not allowed to use AI customer insights."))
+
     def action_generate_ai_summary(self):
         self.ensure_one()
 

@@ -14,7 +14,6 @@ class TestOdooAIChatWizardSecurity(TransactionCase):
         cls.owner = cls.env["res.users"].create({
             "name": "AI Wizard Owner",
             "login": "ai_wizard_owner",
-            "groups_id": [(6, 0, [internal_group.id, cls.ai_group.id])],
         })
         cls.other_user = cls.env["res.users"].create({
             "name": "AI Wizard Other User",

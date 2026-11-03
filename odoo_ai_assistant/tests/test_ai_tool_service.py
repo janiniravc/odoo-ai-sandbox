@@ -166,6 +166,10 @@ class TestOdooAIToolService(TransactionCase):
         mock_odoo_tools,
     ):
         mock_get_client.return_value = self.mock_client
+        mock_odoo_tools.lookup_customers.return_value = {
+            "returned_count": 0,
+            "customers": [],
+        }
         first_batch = [
             self._function_call(call_id=f"first_{index}")
             for index in range(3)

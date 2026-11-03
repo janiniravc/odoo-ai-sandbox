@@ -4,4 +4,10 @@
         <field name="name">AI Assistant User</field>
         <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
     </record>
+    <record id="rule_ai_chat_wizard_own_records" model="ir.rule">
+        <field name="name">AI Chat Wizard: users can access their own conversations</field>
+        <field name="model_id" ref="model_odoo_ai_chat_wizard"/>
+        <field name="groups" eval="[(4, ref('odoo_ai_assistant.group_ai_assistant_user'))]"/>
+        <field name="domain_force">[('create_uid', '=', user.id)]</field>
+    </record>
 </odoo>

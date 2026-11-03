@@ -106,6 +106,23 @@ class TestPartnerAISummary(TransactionCase):
         )
         self.assertTrue(self.partner.ai_follow_up_needed)
 
+    @patch(
+        "odoo.addons.odoo_ai_assistant.models.res_partner."
+        "OdooAIService.generate_text"
+    )
+    def test_user_without_ai_group_cannot_generate_summary(self, mock_generate):
+        internal_group = self.env.ref("base.group_user")
+        user = self.env["res.users"].create({
+            "name": "AI Restricted User",
+            "login": "ai_restricted_user",
+            "groups_id": [(6, 0, [internal_group.id])],
+        })
+
+        with self.assertRaises(AccessError):
+            self.partner.with_user(user).action_generate_ai_summary()
+
+        mock_generate.assert_not_called()
+
     def test_direct_write_to_ai_fields_is_rejected(self):
         with self.assertRaises(AccessError):
             self.partner.write({

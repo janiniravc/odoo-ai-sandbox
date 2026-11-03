@@ -65,15 +65,9 @@ class TestOdooTools(TransactionCase):
 
         self.assertTrue(customer["is_company"])
 
-        self.assertEqual(
-            customer["email"],
-            "week2.customer@example.com",
-        )
-
-        self.assertEqual(
-            customer["city"],
-            "Ahmedabad",
-        )
+        self.assertNotIn("email", customer)
+        self.assertNotIn("city", customer)
+        self.assertNotIn("country", customer)
 
     def test_lookup_customer_by_email(self):
         result = OdooTools.lookup_customers(
@@ -94,10 +88,8 @@ class TestOdooTools(TransactionCase):
 
         self.assertIsNotNone(customer)
 
-        self.assertEqual(
-            customer["email"],
-            "week2.customer@example.com",
-        )
+        # Email can be used as a search key without disclosing it to AI.
+        self.assertNotIn("email", customer)
 
     def test_lookup_includes_only_explicitly_requested_optional_fields(self):
         result = OdooTools.lookup_customers(

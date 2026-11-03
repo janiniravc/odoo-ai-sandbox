@@ -119,8 +119,8 @@ class TestPartnerAISummary(TransactionCase):
         user = self.env["res.users"].create({
             "name": "AI Restricted User",
             "login": "ai_restricted_user",
-            "groups_id": [(6, 0, [internal_group.id])],
         })
+        internal_group.write({"users": [(4, user.id)]})
 
         with self.assertRaises(AccessError):
             self.partner.with_user(user).action_generate_ai_summary()

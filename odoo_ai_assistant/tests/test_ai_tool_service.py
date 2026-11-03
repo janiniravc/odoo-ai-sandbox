@@ -17,6 +17,14 @@ PATCH_PATH = (
 
 class TestOdooAIToolService(TransactionCase):
 
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.ai_group = cls.env.ref(
+            "odoo_ai_assistant.group_ai_assistant_user"
+        )
+        cls.ai_group.write({"users": [(4, cls.env.user.id)]})
+
     def setUp(self):
         super().setUp()
 

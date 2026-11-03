@@ -132,6 +132,25 @@ class TestOdooAIToolService(TransactionCase):
             "call_123",
         )
 
+
+    @patch.dict("os.environ", {}, clear=True)
+    @patch(f"{PATCH_PATH}.OdooAIService._get_client")
+    def test_missing_api_key_returns_safe_configuration_error(
+        self, mock_get_client
+    ):
+        mock_get_client.side_effect = UserError(
+            "The AI service is not configured. "
+            "Please contact your administrator."
+        )
+
+        with self.assertRaisesRegex(
+            UserError,
+            "AI service is not configured",
+        ):
+            OdooAIToolService.ask(self.env, self.question)
+
+        self.mock_client.responses.create.assert_not_called()
+
     @patch(f"{PATCH_PATH}.OdooAIService._get_client")
     def test_empty_question_is_rejected(self, mock_get_client):
         """An empty question should be rejected."""

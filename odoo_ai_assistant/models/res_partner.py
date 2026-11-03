@@ -22,12 +22,14 @@ class ResPartner(models.Model):
         string="AI Recommended Action",
         readonly=True,
         copy=False,
+        groups="odoo_ai_assistant.group_ai_assistant_user",
     )
 
     ai_follow_up_needed = fields.Boolean(
         string="AI Follow-up Needed",
         readonly=True,
         copy=False,
+        groups="odoo_ai_assistant.group_ai_assistant_user",
     )
 
     _AI_FIELDS = {
@@ -69,7 +71,6 @@ Create a concise business summary for this Odoo customer.
 
 Customer name: {self.name or "Not provided"}
 Company: {"Yes" if self.is_company else "No"}
-Customer email available: {"Yes" if self.email else "No"}
 
 Requirements:
 - Describe the customer using only the information provided.

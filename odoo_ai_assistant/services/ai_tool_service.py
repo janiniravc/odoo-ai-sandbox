@@ -10,6 +10,8 @@ class OdooAIToolService:
     """Orchestrate safe, read-only Odoo tools with the OpenAI Responses API."""
 
     MAX_TOOL_ROUNDS = 3
+    MAX_TOOL_CALLS_PER_RESPONSE = 3
+    MAX_TOTAL_TOOL_CALLS = 5
     MAX_QUESTION_CHARS = 4000
 
     TOOLS = [
@@ -71,6 +73,8 @@ class OdooAIToolService:
             {"role": "user", "content": question},
         ]
 
+        total_tool_calls = 0
+
         for _round in range(cls.MAX_TOOL_ROUNDS + 1):
 
             response = OdooAIService._call_provider(
@@ -91,9 +95,22 @@ class OdooAIToolService:
                 item for item in response.output
                 if item.type == "function_call"
             ]
+            if len(tool_calls) > cls.MAX_TOOL_CALLS_PER_RESPONSE:
+                raise UserError(
+                    "The AI requested too many tools at once. "
+                    "Please narrow your question."
+                )
+
+            if total_tool_calls + len(tool_calls) > cls.MAX_TOTAL_TOOL_CALLS:
+                raise UserError(
+                    "The AI reached its total tool-call limit. "
+                    "Please narrow your question."
+                )
+
             if tool_calls and _round >= cls.MAX_TOOL_ROUNDS:
                 raise UserError(
-                    "The AI reached its tool-call limit. Please narrow your question."
+                    "The AI reached its tool-call round limit. "
+                    "Please narrow your question."
                 )
 
             if not tool_calls:
@@ -101,6 +118,10 @@ class OdooAIToolService:
                 if not answer:
                     raise UserError("The AI returned an empty response.")
                 return answer
+
+            # Count every requested call before executing any call in this batch.
+            # This prevents a partial batch from running when it exceeds the cap.
+            total_tool_calls += len(tool_calls)
 
             # Preserve the model's response, including its function-call items.
             input_items.extend(response.output)

@@ -7,8 +7,9 @@
     "author": "Nio Digital",
     "depends": ["base"],
     "data": [
-        "views/res_partner_views.xml",
+        "security/security.xml",
         "security/ir.model.access.csv",
+        "views/res_partner_views.xml",
         "wizard/ai_chat_wizard_views.xml",
     ],
     "installable": True,

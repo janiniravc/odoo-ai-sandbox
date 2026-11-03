@@ -74,7 +74,7 @@ class OdooAIToolService:
                     "for the current user's authorized lookup. Never claim "
                     "you found information that was not returned by a tool. "
                     "If no matching records are found, say so clearly. "
-                    "Do not modify Odoo records."
+                    "Do not modify Odoo records. "
                     "Format answers as plain text. Do not use Markdown "
                     "markers such as **, ##, or bullet characters. "
                     "Use short sentences and line breaks instead. "

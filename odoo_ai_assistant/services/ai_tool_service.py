@@ -20,7 +20,9 @@ class OdooAIToolService:
             "name": "lookup_customers",
             "description": (
                 "Search active Odoo contacts by customer name or email. "
-                "Use this tool when the user asks to find or identify a customer. "
+                "Return only customer name and company status by default. "
+                "Optional email and location details are included only when "
+                "the original user question explicitly requests them. "
                 "Only return records the current Odoo user is allowed to read."
             ),
             "parameters": {

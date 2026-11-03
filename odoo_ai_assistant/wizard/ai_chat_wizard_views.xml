@@ -4,7 +4,7 @@
         <field name="name">odoo.ai.chat.wizard.form</field>
         <field name="model">odoo.ai.chat.wizard</field>
         <field name="arch" type="xml">
-            <form string="Odoo AI Assistant">
+            <form string="Odoo AI Assistant" groups="odoo_ai_assistant.group_ai_assistant_user">
                 <sheet>
                     <group>
                         <field
@@ -61,7 +61,7 @@
         id="menu_odoo_ai_assistant_root"
         name="AI Assistant"
         sequence="90"
-        groups="base.group_user"
+        groups="odoo_ai_assistant.group_ai_assistant_user"
     />
 
     <menuitem
@@ -70,6 +70,6 @@
         parent="menu_odoo_ai_assistant_root"
         action="action_odoo_ai_chat_wizard"
         sequence="10"
-        groups="base.group_user"
+        groups="odoo_ai_assistant.group_ai_assistant_user"
     />
 </odoo>

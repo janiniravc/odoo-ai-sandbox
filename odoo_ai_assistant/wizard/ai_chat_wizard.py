@@ -1,5 +1,5 @@
 from odoo import fields, models, _
-from odoo.exceptions import UserError
+from odoo.exceptions import AccessError, UserError
 
 from ..services.ai_tool_service import OdooAIToolService
 

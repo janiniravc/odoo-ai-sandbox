@@ -18,7 +18,12 @@ class TestOdooAIChatWizardSecurity(TransactionCase):
         cls.other_user = cls.env["res.users"].create({
             "name": "AI Wizard Other User",
             "login": "ai_wizard_other",
-            "groups_id": [(6, 0, [internal_group.id, cls.ai_group.id])],
+        })
+        internal_group.write({
+            "users": [(4, cls.owner.id), (4, cls.other_user.id)]
+        })
+        cls.ai_group.write({
+            "users": [(4, cls.owner.id), (4, cls.other_user.id)]
         })
 
     def test_chat_wizard_is_private_to_its_creator(self):

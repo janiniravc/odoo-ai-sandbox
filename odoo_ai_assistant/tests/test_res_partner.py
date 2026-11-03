@@ -14,7 +14,7 @@ class TestPartnerAISummary(TransactionCase):
         cls.ai_group = cls.env.ref(
             "odoo_ai_assistant.group_ai_assistant_user"
         )
-        cls.ai_group.write({"users": [(4, cls.env.user.id)]})
+        cls.ai_group.write({"user_ids": [(4, cls.env.user.id)]})
         cls.partner = cls.env["res.partner"].create({
             "name": "AI Test Customer Ltd.",
             "is_company": True,
@@ -120,7 +120,7 @@ class TestPartnerAISummary(TransactionCase):
             "name": "AI Restricted User",
             "login": "ai_restricted_user",
         })
-        internal_group.write({"users": [(4, user.id)]})
+        internal_group.write({"user_ids": [(4, user.id)]})
 
         with self.assertRaises(AccessError):
             self.partner.with_user(user).action_generate_ai_summary()

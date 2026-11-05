@@ -101,7 +101,6 @@ class OdooAIToolService:
         total_tool_calls = 0
 
         for _round in range(cls.MAX_TOOL_ROUNDS + 1):
-
             response = OdooAIService._call_provider(
                 lambda: client.responses.create(
                     model=OdooAIService.MODEL,
@@ -193,16 +192,11 @@ class OdooAIToolService:
                         ensure_ascii=False,
                     )
 
-
                 except (AccessError, ValueError, TypeError, UserError):
-                    # # Never expose internal errors or restricted customer information.
-                    # tool_output = json.dumps({
-                    #     "error": "Customer lookup could not be completed."
-                    # })
-                    # Log a safe diagnostic if needed.
+                    # Never expose internal errors or restricted customer data.
                     raise UserError(
                         "Customer lookup could not be completed. Please try again."
-                    )
+                    ) from None
 
                 input_items.append({
                     "type": "function_call_output",

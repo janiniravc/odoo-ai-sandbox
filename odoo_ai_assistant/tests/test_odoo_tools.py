@@ -30,6 +30,10 @@ class TestOdooTools(TransactionCase):
             )
 
         # Always execute customer lookups as a normal user.
+        # Product templates require the standard product user group.
+        product_user_group = cls.env.ref("product.group_product_user")
+        product_user_group.write({"user_ids": [(4, cls.test_user.id)]})
+
         cls.user_env = cls.env(
             user=cls.test_user.id,
             su=False,

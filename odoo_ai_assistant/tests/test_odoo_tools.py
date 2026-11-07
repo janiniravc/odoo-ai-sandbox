@@ -305,3 +305,104 @@ class TestOdooTools(TransactionCase):
             restricted_partner.id,
             returned_ids,
         )
+
+    # ---------------------------------------------------------
+    # Product lookup tests
+    # ---------------------------------------------------------
+
+    def test_lookup_product_by_name(self):
+        product = self.env["product.template"].create({
+            "name": "AI Test Laptop",
+            "default_code": "AI-LAP-001",
+            "list_price": 1250.0,
+            "sale_ok": True,
+        })
+        result = OdooTools.lookup_products(
+            self.user_env,
+            "AI Test Laptop",
+        )
+        item = next(
+            (row for row in result["products"] if row["id"] == product.id),
+            None,
+        )
+        self.assertIsNotNone(item)
+        self.assertEqual(item["name"], "AI Test Laptop")
+        self.assertEqual(item["default_code"], "AI-LAP-001")
+        self.assertEqual(item["list_price"], 1250.0)
+        self.assertTrue(item["currency"])
+
+    def test_lookup_product_by_internal_reference(self):
+        product = self.env["product.template"].create({
+            "name": "Reference Search Laptop",
+            "default_code": "REF-LAP-778",
+            "sale_ok": True,
+        })
+        result = OdooTools.lookup_products(
+            self.user_env,
+            "REF-LAP-778",
+        )
+        self.assertIn(
+            product.id,
+            [row["id"] for row in result["products"]],
+        )
+
+    def test_product_lookup_excludes_archived_and_non_saleable_products(self):
+        archived = self.env["product.template"].create({
+            "name": "Archived AI Laptop",
+            "active": False,
+            "sale_ok": True,
+        })
+        non_saleable = self.env["product.template"].create({
+            "name": "Non Saleable AI Laptop",
+            "sale_ok": False,
+        })
+        result = OdooTools.lookup_products(
+            self.user_env,
+            "AI Laptop",
+        )
+        ids = [row["id"] for row in result["products"]]
+        self.assertNotIn(archived.id, ids)
+        self.assertNotIn(non_saleable.id, ids)
+
+    def test_product_lookup_rejects_superuser_environment(self):
+        with self.assertRaises(AccessError):
+            OdooTools.lookup_products(
+                self.env(su=True),
+                "Laptop",
+            )
+
+    def test_product_lookup_rejects_invalid_query(self):
+        for query in ("", "   ", 123, "x" * (OdooTools.MAX_QUERY_LENGTH + 1)):
+            with self.subTest(query=query):
+                with self.assertRaises(UserError):
+                    OdooTools.lookup_products(self.user_env, query)
+
+    def test_product_lookup_rejects_invalid_limit(self):
+        for limit in (0, -1, 6, True, "5"):
+            with self.subTest(limit=limit):
+                with self.assertRaises(UserError):
+                    OdooTools.lookup_products(
+                        self.user_env,
+                        "Laptop",
+                        limit=limit,
+                    )
+
+    def test_product_lookup_respects_record_rules(self):
+        restricted = self.env["product.template"].create({
+            "name": "Restricted AI Product",
+            "sale_ok": True,
+        })
+        self.env["ir.rule"].create({
+            "name": "Temporary AI product lookup restriction",
+            "model_id": self.env["ir.model"]._get_id("product.template"),
+            "domain_force": "[('id', '!=', %d)]" % restricted.id,
+            "groups": [(5, 0, 0)],
+        })
+        result = OdooTools.lookup_products(
+            self.user_env,
+            "Restricted AI Product",
+        )
+        self.assertNotIn(
+            restricted.id,
+            [row["id"] for row in result["products"]],
+        )

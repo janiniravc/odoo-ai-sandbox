@@ -89,3 +89,68 @@ class OdooTools:
             "returned_count": len(results),
             "customers": results,
         }
+
+    @staticmethod
+    def lookup_products(env, query, limit=5):
+        """Find active, saleable product templates visible to the current user.
+
+        Only basic product identity and public list-price information are
+        returned. Odoo access rights and record rules are always enforced.
+        """
+        if env.su:
+            raise AccessError(
+                "AI product lookup cannot run in superuser mode."
+            )
+
+        if not isinstance(query, str) or not query.strip():
+            raise UserError("Please provide a product name or internal reference.")
+
+        query = query.strip()
+        if len(query) > OdooTools.MAX_QUERY_LENGTH:
+            raise UserError(
+                f"Search text cannot exceed "
+                f"{OdooTools.MAX_QUERY_LENGTH} characters."
+            )
+
+        if (
+            not isinstance(limit, int)
+            or isinstance(limit, bool)
+            or limit < 1
+            or limit > OdooTools.MAX_RESULTS
+        ):
+            raise UserError(
+                f"Result limit must be between 1 and "
+                f"{OdooTools.MAX_RESULTS}."
+            )
+
+        Product = env["product.template"]
+        Product.check_access("read")
+        domain = [
+            ("active", "=", True),
+            ("sale_ok", "=", True),
+            "|",
+            ("name", "ilike", query),
+            ("default_code", "ilike", query),
+        ]
+        records = Product.search_read(
+            domain,
+            fields=["id", "name", "default_code", "list_price", "currency_id"],
+            limit=limit,
+            order="name, id",
+        )
+
+        products = []
+        for record in records:
+            currency = record.get("currency_id")
+            products.append({
+                "id": record["id"],
+                "name": record["name"],
+                "default_code": record.get("default_code") or None,
+                "list_price": record["list_price"],
+                "currency": currency[1] if currency else None,
+            })
+
+        return {
+            "returned_count": len(products),
+            "products": products,
+        }

@@ -146,6 +146,72 @@ class TestOdooAIToolService(TransactionCase):
 
     @patch(f"{PATCH_PATH}.OdooTools")
     @patch(f"{PATCH_PATH}.OdooAIService._get_client")
+    def test_successful_product_lookup(
+        self,
+        mock_get_client,
+        mock_odoo_tools,
+    ):
+        mock_get_client.return_value = self.mock_client
+        product_call = self._function_call(
+            name="lookup_products",
+            arguments={"query": "Laptop", "limit": 5},
+        )
+        mock_odoo_tools.lookup_products.return_value = {
+            "returned_count": 1,
+            "products": [{
+                "id": 21,
+                "name": "AI Test Laptop",
+                "default_code": "AI-LAP-001",
+                "list_price": 1250.0,
+                "currency": "USD",
+            }],
+        }
+        self.mock_client.responses.create.side_effect = [
+            self._response(output=[product_call]),
+            self._response(output_text="AI Test Laptop costs USD 1,250."),
+        ]
+
+        answer = OdooAIToolService.ask(
+            self.env,
+            "Find the Laptop product and show its price.",
+        )
+
+        self.assertEqual(answer, "AI Test Laptop costs USD 1,250.")
+        mock_odoo_tools.lookup_products.assert_called_once_with(
+            self.env,
+            query="Laptop",
+            limit=5,
+        )
+        mock_odoo_tools.lookup_customers.assert_not_called()
+
+        second_request = self.mock_client.responses.create.call_args_list[1]
+        tool_outputs = [
+            item for item in second_request.kwargs["input"]
+            if isinstance(item, dict)
+            and item.get("type") == "function_call_output"
+        ]
+        self.assertEqual(len(tool_outputs), 1)
+        payload = json.loads(tool_outputs[0]["output"])
+        self.assertEqual(payload["type"], "untrusted_product_data")
+        self.assertEqual(
+            payload["data"]["products"][0]["default_code"],
+            "AI-LAP-001",
+        )
+
+    def test_product_lookup_tool_is_registered(self):
+        product_tools = [
+            tool for tool in OdooAIToolService.TOOLS
+            if tool.get("name") == "lookup_products"
+        ]
+        self.assertEqual(len(product_tools), 1)
+        self.assertEqual(
+            product_tools[0]["parameters"]["required"],
+            ["query", "limit"],
+        )
+        self.assertTrue(product_tools[0]["strict"])
+
+    @patch(f"{PATCH_PATH}.OdooTools")
+    @patch(f"{PATCH_PATH}.OdooAIService._get_client")
     def test_rejects_too_many_tool_calls_in_one_response(
         self,
         mock_get_client,
@@ -362,7 +428,7 @@ class TestOdooAIToolService(TransactionCase):
 
         with self.assertRaisesRegex(
             UserError,
-            "Customer lookup could not be completed",
+            "Odoo data lookup could not be completed",
         ):
             OdooAIToolService.ask(self.env, self.question)
 
@@ -386,7 +452,7 @@ class TestOdooAIToolService(TransactionCase):
 
         with self.assertRaisesRegex(
             UserError,
-            "Customer lookup could not be completed",
+            "Odoo data lookup could not be completed",
         ):
             OdooAIToolService.ask(self.env, self.question)
 
@@ -406,7 +472,7 @@ class TestOdooAIToolService(TransactionCase):
 
         with self.assertRaisesRegex(
             UserError,
-            "Customer lookup could not be completed",
+            "Odoo data lookup could not be completed",
         ):
             OdooAIToolService.ask(self.env, self.question)
 
@@ -429,7 +495,7 @@ class TestOdooAIToolService(TransactionCase):
 
         with self.assertRaisesRegex(
             UserError,
-            "Customer lookup could not be completed",
+            "Odoo data lookup could not be completed",
         ):
             OdooAIToolService.ask(self.env, self.question)
 
@@ -456,7 +522,7 @@ class TestOdooAIToolService(TransactionCase):
 
         with self.assertRaisesRegex(
             UserError,
-            "Customer lookup could not be completed. Please try again.",
+            "Odoo data lookup could not be completed. Please try again.",
         ):
             OdooAIToolService.ask(self.env, self.question)
 
@@ -495,7 +561,7 @@ class TestOdooAIToolService(TransactionCase):
 
         self.assertEqual(
             str(error.exception),
-            "Customer lookup could not be completed. Please try again.",
+            "Odoo data lookup could not be completed. Please try again.",
         )
 
         self.assertNotIn(

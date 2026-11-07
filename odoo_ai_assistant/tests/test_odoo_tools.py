@@ -615,3 +615,112 @@ class TestOdooTools(TransactionCase):
             invoice.id,
             [row["id"] for row in result["invoices"]],
         )
+
+    # ---------------------------------------------------------
+    # CRM lead lookup tests
+    # ---------------------------------------------------------
+
+    def _create_crm_lead(self, name, **values):
+        vals = {
+            "name": name,
+            "user_id": self.test_user.id,
+            "type": "opportunity",
+        }
+        vals.update(values)
+        return self.env["crm.lead"].create(vals)
+
+    def test_lookup_crm_lead_by_name(self):
+        lead = self._create_crm_lead("AI CRM Pipeline Upgrade")
+        result = OdooTools.lookup_crm_leads(
+            self.user_env,
+            "AI CRM Pipeline Upgrade",
+        )
+        item = next(
+            (row for row in result["leads"] if row["id"] == lead.id),
+            None,
+        )
+        self.assertIsNotNone(item)
+        self.assertEqual(item["name"], "AI CRM Pipeline Upgrade")
+        self.assertEqual(item["type"], "opportunity")
+        self.assertEqual(item["salesperson"], self.test_user.name)
+        self.assertIn("stage", item)
+        self.assertIn("expected_revenue", item)
+        self.assertIn("currency", item)
+
+    def test_lookup_crm_lead_by_customer_name(self):
+        customer = self.env["res.partner"].create({
+            "name": "CRM Search Customer Example",
+        })
+        lead = self._create_crm_lead(
+            "New ERP Opportunity",
+            partner_id=customer.id,
+        )
+        result = OdooTools.lookup_crm_leads(
+            self.user_env,
+            "CRM Search Customer Example",
+        )
+        self.assertIn(
+            lead.id,
+            [row["id"] for row in result["leads"]],
+        )
+
+    def test_lookup_crm_lead_by_salesperson_name(self):
+        lead = self._create_crm_lead("Salesperson Search Opportunity")
+        result = OdooTools.lookup_crm_leads(
+            self.user_env,
+            self.test_user.name,
+        )
+        self.assertIn(
+            lead.id,
+            [row["id"] for row in result["leads"]],
+        )
+
+    def test_lookup_crm_lead_by_pipeline_stage(self):
+        lead = self._create_crm_lead("Pipeline Stage Search Opportunity")
+        self.assertTrue(lead.stage_id)
+        result = OdooTools.lookup_crm_leads(
+            self.user_env,
+            lead.stage_id.name,
+        )
+        self.assertIn(
+            lead.id,
+            [row["id"] for row in result["leads"]],
+        )
+
+    def test_crm_lead_lookup_rejects_superuser_environment(self):
+        with self.assertRaises(AccessError):
+            OdooTools.lookup_crm_leads(
+                self.env(su=True),
+                "CRM",
+            )
+
+    def test_crm_lead_lookup_rejects_invalid_query_and_limit(self):
+        for query in ("", "   ", 123, "x" * (OdooTools.MAX_QUERY_LENGTH + 1)):
+            with self.subTest(query=query):
+                with self.assertRaises(UserError):
+                    OdooTools.lookup_crm_leads(self.user_env, query)
+        for limit in (0, -1, 6, True, "5"):
+            with self.subTest(limit=limit):
+                with self.assertRaises(UserError):
+                    OdooTools.lookup_crm_leads(
+                        self.user_env,
+                        "CRM",
+                        limit=limit,
+                    )
+
+    def test_crm_lead_lookup_respects_record_rules(self):
+        lead = self._create_crm_lead("Restricted CRM Lead Record")
+        self.env["ir.rule"].create({
+            "name": "Temporary AI CRM lead lookup restriction",
+            "model_id": self.env["ir.model"]._get_id("crm.lead"),
+            "domain_force": "[('id', '!=', %d)]" % lead.id,
+            "groups": [(5, 0, 0)],
+        })
+        result = OdooTools.lookup_crm_leads(
+            self.user_env,
+            "Restricted CRM Lead Record",
+        )
+        self.assertNotIn(
+            lead.id,
+            [row["id"] for row in result["leads"]],
+        )

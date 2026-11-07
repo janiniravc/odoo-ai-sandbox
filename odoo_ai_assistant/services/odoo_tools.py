@@ -217,7 +217,8 @@ class OdooTools:
                 "customer": partner[1] if partner else None,
                 "date_order": (
                     record["date_order"].isoformat()
-                    if record.get("date_order") else None
+                    if hasattr(record.get("date_order"), "isoformat")
+                    else record.get("date_order") or None
                 ),
                 "state": record["state"],
                 "amount_total": record["amount_total"],

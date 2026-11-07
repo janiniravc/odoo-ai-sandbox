@@ -229,3 +229,86 @@ class OdooTools:
             "returned_count": len(orders),
             "sales_orders": orders,
         }
+
+    @staticmethod
+    def lookup_invoices(env, query, limit=5):
+        """Find customer invoices by invoice number, reference or customer.
+
+        Only customer invoices are included. Returned financial details are
+        limited to totals, outstanding balance, dates and payment status.
+        Normal Odoo access rights and record rules always apply.
+        """
+        if env.su:
+            raise AccessError(
+                "AI invoice lookup cannot run in superuser mode."
+            )
+
+        if not isinstance(query, str) or not query.strip():
+            raise UserError(
+                "Please provide an invoice number, reference or customer name."
+            )
+
+        query = query.strip()
+        if len(query) > OdooTools.MAX_QUERY_LENGTH:
+            raise UserError(
+                f"Search text cannot exceed "
+                f"{OdooTools.MAX_QUERY_LENGTH} characters."
+            )
+
+        if (
+            not isinstance(limit, int)
+            or isinstance(limit, bool)
+            or limit < 1
+            or limit > OdooTools.MAX_RESULTS
+        ):
+            raise UserError(
+                f"Result limit must be between 1 and "
+                f"{OdooTools.MAX_RESULTS}."
+            )
+
+        Move = env["account.move"]
+        Move.check_access("read")
+        records = Move.search_read(
+            [
+                ("move_type", "=", "out_invoice"),
+                ("state", "!=", "cancel"),
+                "|", "|",
+                ("name", "ilike", query),
+                ("ref", "ilike", query),
+                ("partner_id.name", "ilike", query),
+            ],
+            fields=[
+                "id", "name", "partner_id", "invoice_date",
+                "invoice_date_due", "state", "payment_state",
+                "amount_total", "amount_residual", "currency_id",
+            ],
+            limit=limit,
+            order="invoice_date desc, id desc",
+        )
+
+        def serialize_date(value):
+            if hasattr(value, "isoformat"):
+                return value.isoformat()
+            return value or None
+
+        invoices = []
+        for record in records:
+            partner = record.get("partner_id")
+            currency = record.get("currency_id")
+            invoices.append({
+                "id": record["id"],
+                "name": record["name"],
+                "customer": partner[1] if partner else None,
+                "invoice_date": serialize_date(record.get("invoice_date")),
+                "due_date": serialize_date(record.get("invoice_date_due")),
+                "state": record["state"],
+                "payment_state": record.get("payment_state"),
+                "amount_total": record["amount_total"],
+                "amount_due": record["amount_residual"],
+                "currency": currency[1] if currency else None,
+            })
+
+        return {
+            "returned_count": len(invoices),
+            "invoices": invoices,
+        }

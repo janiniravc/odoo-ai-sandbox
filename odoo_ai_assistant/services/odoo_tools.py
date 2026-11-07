@@ -154,3 +154,77 @@ class OdooTools:
             "returned_count": len(products),
             "products": products,
         }
+
+    @staticmethod
+    def lookup_sales_orders(env, query, limit=5):
+        """Find non-cancelled sales orders by reference or customer name.
+
+        Returns order reference, customer, order date, status, total and
+        currency. Normal Odoo access rights and record rules always apply.
+        """
+        if env.su:
+            raise AccessError(
+                "AI sales order lookup cannot run in superuser mode."
+            )
+
+        if not isinstance(query, str) or not query.strip():
+            raise UserError(
+                "Please provide a sales order reference or customer name."
+            )
+
+        query = query.strip()
+        if len(query) > OdooTools.MAX_QUERY_LENGTH:
+            raise UserError(
+                f"Search text cannot exceed "
+                f"{OdooTools.MAX_QUERY_LENGTH} characters."
+            )
+
+        if (
+            not isinstance(limit, int)
+            or isinstance(limit, bool)
+            or limit < 1
+            or limit > OdooTools.MAX_RESULTS
+        ):
+            raise UserError(
+                f"Result limit must be between 1 and "
+                f"{OdooTools.MAX_RESULTS}."
+            )
+
+        SaleOrder = env["sale.order"]
+        SaleOrder.check_access("read")
+        records = SaleOrder.search_read(
+            [
+                ("state", "!=", "cancel"),
+                "|",
+                ("name", "ilike", query),
+                ("partner_id.name", "ilike", query),
+            ],
+            fields=[
+                "id", "name", "partner_id", "date_order",
+                "state", "amount_total", "currency_id",
+            ],
+            limit=limit,
+            order="date_order desc, id desc",
+        )
+
+        orders = []
+        for record in records:
+            partner = record.get("partner_id")
+            currency = record.get("currency_id")
+            orders.append({
+                "id": record["id"],
+                "name": record["name"],
+                "customer": partner[1] if partner else None,
+                "date_order": (
+                    record["date_order"].isoformat()
+                    if record.get("date_order") else None
+                ),
+                "state": record["state"],
+                "amount_total": record["amount_total"],
+                "currency": currency[1] if currency else None,
+            })
+
+        return {
+            "returned_count": len(orders),
+            "sales_orders": orders,
+        }

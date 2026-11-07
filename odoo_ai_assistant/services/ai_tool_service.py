@@ -230,7 +230,7 @@ class OdooAIToolService:
                 except (AccessError, ValueError, TypeError, UserError):
                     # Never expose internal errors or restricted customer data.
                     raise UserError(
-                        "Customer lookup could not be completed. Please try again."
+                        "Odoo data lookup could not be completed. Please try again."
                     ) from None
 
                 input_items.append({

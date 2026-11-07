@@ -312,3 +312,80 @@ class OdooTools:
             "returned_count": len(invoices),
             "invoices": invoices,
         }
+
+    @staticmethod
+    def lookup_crm_leads(env, query, limit=5):
+        """Find active CRM leads and opportunities by name or related owner/stage.
+
+        Returns only concise pipeline information. Normal Odoo access rights
+        and record rules always apply.
+        """
+        if env.su:
+            raise AccessError(
+                "AI CRM lead lookup cannot run in superuser mode."
+            )
+
+        if not isinstance(query, str) or not query.strip():
+            raise UserError(
+                "Please provide a lead, customer, salesperson or stage name."
+            )
+
+        query = query.strip()
+        if len(query) > OdooTools.MAX_QUERY_LENGTH:
+            raise UserError(
+                f"Search text cannot exceed "
+                f"{OdooTools.MAX_QUERY_LENGTH} characters."
+            )
+
+        if (
+            not isinstance(limit, int)
+            or isinstance(limit, bool)
+            or limit < 1
+            or limit > OdooTools.MAX_RESULTS
+        ):
+            raise UserError(
+                f"Result limit must be between 1 and "
+                f"{OdooTools.MAX_RESULTS}."
+            )
+
+        Lead = env["crm.lead"]
+        Lead.check_access("read")
+        records = Lead.search_read(
+            [
+                ("active", "=", True),
+                "|", "|", "|",
+                ("name", "ilike", query),
+                ("partner_id.name", "ilike", query),
+                ("user_id.name", "ilike", query),
+                ("stage_id.name", "ilike", query),
+            ],
+            fields=[
+                "id", "name", "partner_id", "user_id", "stage_id",
+                "type", "probability", "expected_revenue", "company_currency",
+            ],
+            limit=limit,
+            order="write_date desc, id desc",
+        )
+
+        leads = []
+        for record in records:
+            partner = record.get("partner_id")
+            salesperson = record.get("user_id")
+            stage = record.get("stage_id")
+            currency = record.get("company_currency")
+            leads.append({
+                "id": record["id"],
+                "name": record["name"],
+                "customer": partner[1] if partner else None,
+                "salesperson": salesperson[1] if salesperson else None,
+                "stage": stage[1] if stage else None,
+                "type": record["type"],
+                "probability": record["probability"],
+                "expected_revenue": record["expected_revenue"],
+                "currency": currency[1] if currency else None,
+            })
+
+        return {
+            "returned_count": len(leads),
+            "leads": leads,
+        }

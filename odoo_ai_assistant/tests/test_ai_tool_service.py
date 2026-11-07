@@ -284,6 +284,82 @@ class TestOdooAIToolService(TransactionCase):
 
     @patch(f"{PATCH_PATH}.OdooTools")
     @patch(f"{PATCH_PATH}.OdooAIService._get_client")
+    def test_successful_invoice_lookup(
+        self,
+        mock_get_client,
+        mock_odoo_tools,
+    ):
+        mock_get_client.return_value = self.mock_client
+        invoice_call = self._function_call(
+            name="lookup_invoices",
+            arguments={"query": "INV/2026/001", "limit": 5},
+        )
+        mock_odoo_tools.lookup_invoices.return_value = {
+            "returned_count": 1,
+            "invoices": [{
+                "id": 41,
+                "name": "INV/2026/001",
+                "customer": "Example Customer",
+                "invoice_date": "2026-10-01",
+                "due_date": "2026-10-31",
+                "state": "posted",
+                "payment_state": "not_paid",
+                "amount_total": 2500.0,
+                "amount_due": 2500.0,
+                "currency": "INR",
+            }],
+        }
+        self.mock_client.responses.create.side_effect = [
+            self._response(output=[invoice_call]),
+            self._response(output_text="Invoice INV/2026/001 has INR 2,500 due."),
+        ]
+
+        answer = OdooAIToolService.ask(
+            self.env,
+            "Show invoice INV/2026/001 and its outstanding amount.",
+        )
+
+        self.assertEqual(
+            answer,
+            "Invoice INV/2026/001 has INR 2,500 due.",
+        )
+        mock_odoo_tools.lookup_invoices.assert_called_once_with(
+            self.env,
+            query="INV/2026/001",
+            limit=5,
+        )
+        mock_odoo_tools.lookup_customers.assert_not_called()
+        mock_odoo_tools.lookup_products.assert_not_called()
+        mock_odoo_tools.lookup_sales_orders.assert_not_called()
+
+        second_request = self.mock_client.responses.create.call_args_list[1]
+        tool_outputs = [
+            item for item in second_request.kwargs["input"]
+            if isinstance(item, dict)
+            and item.get("type") == "function_call_output"
+        ]
+        self.assertEqual(len(tool_outputs), 1)
+        payload = json.loads(tool_outputs[0]["output"])
+        self.assertEqual(payload["type"], "untrusted_invoice_data")
+        self.assertEqual(
+            payload["data"]["invoices"][0]["name"],
+            "INV/2026/001",
+        )
+
+    def test_invoice_lookup_tool_is_registered(self):
+        invoice_tools = [
+            tool for tool in OdooAIToolService.TOOLS
+            if tool.get("name") == "lookup_invoices"
+        ]
+        self.assertEqual(len(invoice_tools), 1)
+        self.assertEqual(
+            invoice_tools[0]["parameters"]["required"],
+            ["query", "limit"],
+        )
+        self.assertTrue(invoice_tools[0]["strict"])
+
+    @patch(f"{PATCH_PATH}.OdooTools")
+    @patch(f"{PATCH_PATH}.OdooAIService._get_client")
     def test_rejects_too_many_tool_calls_in_one_response(
         self,
         mock_get_client,

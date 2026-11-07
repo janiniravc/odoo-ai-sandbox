@@ -256,7 +256,7 @@ class OdooAIToolService:
             input_items.extend(response.output)
 
             for tool_call in tool_calls:
-                if tool_call.name not in ("lookup_customers", "lookup_products", "lookup_sales_orders", "lookup_invoices"):
+                if tool_call.name not in ("lookup_customers", "lookup_products", "lookup_sales_orders", "lookup_invoices", "lookup_crm_leads"):
                     raise UserError("The AI requested an unsupported tool.")
 
                 try:

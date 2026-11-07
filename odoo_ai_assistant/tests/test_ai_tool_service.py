@@ -428,7 +428,7 @@ class TestOdooAIToolService(TransactionCase):
 
         with self.assertRaisesRegex(
             UserError,
-            "Customer lookup could not be completed",
+            "Odoo data lookup could not be completed",
         ):
             OdooAIToolService.ask(self.env, self.question)
 
@@ -452,7 +452,7 @@ class TestOdooAIToolService(TransactionCase):
 
         with self.assertRaisesRegex(
             UserError,
-            "Customer lookup could not be completed",
+            "Odoo data lookup could not be completed",
         ):
             OdooAIToolService.ask(self.env, self.question)
 
@@ -472,7 +472,7 @@ class TestOdooAIToolService(TransactionCase):
 
         with self.assertRaisesRegex(
             UserError,
-            "Customer lookup could not be completed",
+            "Odoo data lookup could not be completed",
         ):
             OdooAIToolService.ask(self.env, self.question)
 
@@ -495,7 +495,7 @@ class TestOdooAIToolService(TransactionCase):
 
         with self.assertRaisesRegex(
             UserError,
-            "Customer lookup could not be completed",
+            "Odoo data lookup could not be completed",
         ):
             OdooAIToolService.ask(self.env, self.question)
 
@@ -522,7 +522,7 @@ class TestOdooAIToolService(TransactionCase):
 
         with self.assertRaisesRegex(
             UserError,
-            "Customer lookup could not be completed. Please try again.",
+            "Odoo data lookup could not be completed. Please try again.",
         ):
             OdooAIToolService.ask(self.env, self.question)
 
@@ -561,7 +561,7 @@ class TestOdooAIToolService(TransactionCase):
 
         self.assertEqual(
             str(error.exception),
-            "Customer lookup could not be completed. Please try again.",
+            "Odoo data lookup could not be completed. Please try again.",
         )
 
         self.assertNotIn(

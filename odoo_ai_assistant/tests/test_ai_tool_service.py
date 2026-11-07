@@ -212,6 +212,78 @@ class TestOdooAIToolService(TransactionCase):
 
     @patch(f"{PATCH_PATH}.OdooTools")
     @patch(f"{PATCH_PATH}.OdooAIService._get_client")
+    def test_successful_sales_order_lookup(
+        self,
+        mock_get_client,
+        mock_odoo_tools,
+    ):
+        mock_get_client.return_value = self.mock_client
+        order_call = self._function_call(
+            name="lookup_sales_orders",
+            arguments={"query": "AI-SO-001", "limit": 5},
+        )
+        mock_odoo_tools.lookup_sales_orders.return_value = {
+            "returned_count": 1,
+            "sales_orders": [{
+                "id": 31,
+                "name": "AI-SO-001",
+                "customer": "Example Customer",
+                "date_order": "2026-11-07 10:00:00",
+                "state": "sale",
+                "amount_total": 2500.0,
+                "currency": "INR",
+            }],
+        }
+        self.mock_client.responses.create.side_effect = [
+            self._response(output=[order_call]),
+            self._response(output_text="AI-SO-001 is confirmed for INR 2,500."),
+        ]
+
+        answer = OdooAIToolService.ask(
+            self.env,
+            "Show sales order AI-SO-001.",
+        )
+
+        self.assertEqual(
+            answer,
+            "AI-SO-001 is confirmed for INR 2,500.",
+        )
+        mock_odoo_tools.lookup_sales_orders.assert_called_once_with(
+            self.env,
+            query="AI-SO-001",
+            limit=5,
+        )
+        mock_odoo_tools.lookup_customers.assert_not_called()
+        mock_odoo_tools.lookup_products.assert_not_called()
+
+        second_request = self.mock_client.responses.create.call_args_list[1]
+        tool_outputs = [
+            item for item in second_request.kwargs["input"]
+            if isinstance(item, dict)
+            and item.get("type") == "function_call_output"
+        ]
+        self.assertEqual(len(tool_outputs), 1)
+        payload = json.loads(tool_outputs[0]["output"])
+        self.assertEqual(payload["type"], "untrusted_sales_order_data")
+        self.assertEqual(
+            payload["data"]["sales_orders"][0]["name"],
+            "AI-SO-001",
+        )
+
+    def test_sales_order_lookup_tool_is_registered(self):
+        order_tools = [
+            tool for tool in OdooAIToolService.TOOLS
+            if tool.get("name") == "lookup_sales_orders"
+        ]
+        self.assertEqual(len(order_tools), 1)
+        self.assertEqual(
+            order_tools[0]["parameters"]["required"],
+            ["query", "limit"],
+        )
+        self.assertTrue(order_tools[0]["strict"])
+
+    @patch(f"{PATCH_PATH}.OdooTools")
+    @patch(f"{PATCH_PATH}.OdooAIService._get_client")
     def test_rejects_too_many_tool_calls_in_one_response(
         self,
         mock_get_client,

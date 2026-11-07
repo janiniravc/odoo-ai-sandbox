@@ -423,6 +423,10 @@ class TestOdooTools(TransactionCase):
         return self.env["sale.order"].create({
             "name": name,
             "partner_id": partner.id,
+            # Sales order record rules commonly restrict access to orders
+            # assigned to the current salesperson. Make the fixture visible
+            # to the normal user used by the lookup tests.
+            "user_id": self.test_user.id,
         })
 
     def test_lookup_sales_order_by_reference(self):

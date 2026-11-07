@@ -37,7 +37,7 @@ class TestOdooTools(TransactionCase):
         sales_user_group = cls.env.ref("sales_team.group_sale_salesman")
         sales_user_group.write({"user_ids": [(4, cls.test_user.id)]})
         invoice_user_group = cls.env.ref("account.group_account_invoice")
-        invoice_user_group.write({"users": [(4, cls.test_user.id)]})
+        invoice_user_group.write({"user_ids": [(4, cls.test_user.id)]})
 
         cls.user_env = cls.env(
             user=cls.test_user.id,

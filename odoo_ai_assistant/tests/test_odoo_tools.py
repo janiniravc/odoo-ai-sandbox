@@ -29,11 +29,10 @@ class TestOdooTools(TransactionCase):
                 "Test AI user must exist in the test database."
             )
 
-        # Always execute customer lookups as a normal user.
-        # Product templates require the standard product user group.
-        product_user_group = cls.env.ref("product.group_product_user")
-        product_user_group.write({"user_ids": [(4, cls.test_user.id)]})
-
+        # Always execute customer and product lookups as a normal user.
+        # The test user already belongs to base.group_user through the
+        # AI Assistant group; do not depend on version-specific product
+        # group external IDs.
         cls.user_env = cls.env(
             user=cls.test_user.id,
             su=False,

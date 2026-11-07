@@ -33,6 +33,10 @@ class TestOdooTools(TransactionCase):
         # The test user already belongs to base.group_user through the
         # AI Assistant group; do not depend on version-specific product
         # group external IDs.
+        # Sales order reads are granted through the standard Sales user group.
+        sales_user_group = cls.env.ref("sales_team.group_sale_salesman")
+        sales_user_group.write({"user_ids": [(4, cls.test_user.id)]})
+
         cls.user_env = cls.env(
             user=cls.test_user.id,
             su=False,
@@ -408,4 +412,99 @@ class TestOdooTools(TransactionCase):
         self.assertNotIn(
             restricted.id,
             [row["id"] for row in result["products"]],
+        )
+
+    # ---------------------------------------------------------
+    # Sales order lookup tests
+    # ---------------------------------------------------------
+
+    def _create_sales_order(self, name, customer_name="AI Sales Order Customer"):
+        partner = self.env["res.partner"].create({"name": customer_name})
+        return self.env["sale.order"].create({
+            "name": name,
+            "partner_id": partner.id,
+        })
+
+    def test_lookup_sales_order_by_reference(self):
+        order = self._create_sales_order("AI-SO-REF-001")
+        result = OdooTools.lookup_sales_orders(
+            self.user_env,
+            "AI-SO-REF-001",
+        )
+        item = next(
+            (row for row in result["sales_orders"] if row["id"] == order.id),
+            None,
+        )
+        self.assertIsNotNone(item)
+        self.assertEqual(item["name"], "AI-SO-REF-001")
+        self.assertEqual(item["customer"], "AI Sales Order Customer")
+        self.assertEqual(item["state"], "draft")
+        self.assertEqual(item["amount_total"], 0.0)
+        self.assertTrue(item["currency"])
+        self.assertTrue(item["date_order"])
+
+    def test_lookup_sales_order_by_customer_name(self):
+        order = self._create_sales_order(
+            "AI-SO-CUSTOMER-002",
+            customer_name="Customer Search Example",
+        )
+        result = OdooTools.lookup_sales_orders(
+            self.user_env,
+            "Customer Search Example",
+        )
+        self.assertIn(
+            order.id,
+            [row["id"] for row in result["sales_orders"]],
+        )
+
+    def test_sales_order_lookup_excludes_cancelled_orders(self):
+        order = self._create_sales_order("AI-SO-CANCEL-003")
+        order.write({"state": "cancel"})
+        result = OdooTools.lookup_sales_orders(
+            self.user_env,
+            "AI-SO-CANCEL-003",
+        )
+        self.assertNotIn(
+            order.id,
+            [row["id"] for row in result["sales_orders"]],
+        )
+
+    def test_sales_order_lookup_rejects_superuser_environment(self):
+        with self.assertRaises(AccessError):
+            OdooTools.lookup_sales_orders(
+                self.env(su=True),
+                "AI-SO",
+            )
+
+    def test_sales_order_lookup_rejects_invalid_query(self):
+        for query in ("", "   ", 123, "x" * (OdooTools.MAX_QUERY_LENGTH + 1)):
+            with self.subTest(query=query):
+                with self.assertRaises(UserError):
+                    OdooTools.lookup_sales_orders(self.user_env, query)
+
+    def test_sales_order_lookup_rejects_invalid_limit(self):
+        for limit in (0, -1, 6, True, "5"):
+            with self.subTest(limit=limit):
+                with self.assertRaises(UserError):
+                    OdooTools.lookup_sales_orders(
+                        self.user_env,
+                        "AI-SO",
+                        limit=limit,
+                    )
+
+    def test_sales_order_lookup_respects_record_rules(self):
+        order = self._create_sales_order("AI-SO-RESTRICTED-004")
+        self.env["ir.rule"].create({
+            "name": "Temporary AI sales order lookup restriction",
+            "model_id": self.env["ir.model"]._get_id("sale.order"),
+            "domain_force": "[('id', '!=', %d)]" % order.id,
+            "groups": [(5, 0, 0)],
+        })
+        result = OdooTools.lookup_sales_orders(
+            self.user_env,
+            "AI-SO-RESTRICTED-004",
+        )
+        self.assertNotIn(
+            order.id,
+            [row["id"] for row in result["sales_orders"]],
         )

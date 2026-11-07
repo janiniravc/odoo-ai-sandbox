@@ -36,6 +36,8 @@ class TestOdooTools(TransactionCase):
         # Sales order reads are granted through the standard Sales user group.
         sales_user_group = cls.env.ref("sales_team.group_sale_salesman")
         sales_user_group.write({"user_ids": [(4, cls.test_user.id)]})
+        invoice_user_group = cls.env.ref("account.group_account_invoice")
+        invoice_user_group.write({"user_ids": [(4, cls.test_user.id)]})
 
         cls.user_env = cls.env(
             user=cls.test_user.id,
@@ -511,4 +513,105 @@ class TestOdooTools(TransactionCase):
         self.assertNotIn(
             order.id,
             [row["id"] for row in result["sales_orders"]],
+        )
+
+
+    # ---------------------------------------------------------
+    # Customer invoice lookup tests
+    # ---------------------------------------------------------
+
+    def _create_customer_invoice(self, customer_name="Invoice Lookup Customer"):
+        partner = self.env["res.partner"].create({"name": customer_name})
+        income_account = self.env["account.account"].search([
+            ("account_type", "=", "income"),
+            ("company_ids", "in", self.env.company.id),
+        ], limit=1)
+        if not income_account:
+            raise AssertionError("An income account is required for invoice tests.")
+        invoice = self.env["account.move"].create({
+            "move_type": "out_invoice",
+            "partner_id": partner.id,
+            "invoice_date": "2026-10-01",
+            "invoice_date_due": "2026-10-31",
+            "invoice_line_ids": [(0, 0, {
+                "name": "AI invoice test service",
+                "quantity": 2,
+                "price_unit": 125.0,
+                "account_id": income_account.id,
+            })],
+        })
+        invoice.action_post()
+        return invoice
+
+    def test_lookup_invoice_by_number(self):
+        invoice = self._create_customer_invoice()
+        result = OdooTools.lookup_invoices(self.user_env, invoice.name)
+        item = next(
+            (row for row in result["invoices"] if row["id"] == invoice.id),
+            None,
+        )
+        self.assertIsNotNone(item)
+        self.assertEqual(item["name"], invoice.name)
+        self.assertEqual(item["customer"], "Invoice Lookup Customer")
+        self.assertEqual(item["state"], "posted")
+        self.assertEqual(item["payment_state"], "not_paid")
+        self.assertEqual(item["amount_total"], 250.0)
+        self.assertEqual(item["amount_due"], 250.0)
+        self.assertTrue(item["currency"])
+        self.assertEqual(item["invoice_date"], "2026-10-01")
+        self.assertEqual(item["due_date"], "2026-10-31")
+
+    def test_lookup_invoice_by_customer_name(self):
+        invoice = self._create_customer_invoice("Invoice Customer Search")
+        result = OdooTools.lookup_invoices(
+            self.user_env,
+            "Invoice Customer Search",
+        )
+        self.assertIn(
+            invoice.id,
+            [row["id"] for row in result["invoices"]],
+        )
+
+    def test_invoice_lookup_excludes_cancelled_invoices(self):
+        invoice = self._create_customer_invoice("Cancelled Invoice Customer")
+        invoice.button_cancel()
+        result = OdooTools.lookup_invoices(self.user_env, invoice.name)
+        self.assertNotIn(
+            invoice.id,
+            [row["id"] for row in result["invoices"]],
+        )
+
+    def test_invoice_lookup_rejects_superuser_environment(self):
+        with self.assertRaises(AccessError):
+            OdooTools.lookup_invoices(self.env(su=True), "INV")
+
+    def test_invoice_lookup_rejects_invalid_query_and_limit(self):
+        for query in ("", "   ", 123, "x" * (OdooTools.MAX_QUERY_LENGTH + 1)):
+            with self.subTest(query=query):
+                with self.assertRaises(UserError):
+                    OdooTools.lookup_invoices(self.user_env, query)
+        for limit in (0, -1, 6, True, "5"):
+            with self.subTest(limit=limit):
+                with self.assertRaises(UserError):
+                    OdooTools.lookup_invoices(
+                        self.user_env,
+                        "INV",
+                        limit=limit,
+                    )
+
+    def test_invoice_lookup_respects_record_rules(self):
+        invoice = self._create_customer_invoice("Restricted Invoice Customer")
+        self.env["ir.rule"].create({
+            "name": "Temporary AI invoice lookup restriction",
+            "model_id": self.env["ir.model"]._get_id("account.move"),
+            "domain_force": "[('id', '!=', %d)]" % invoice.id,
+            "groups": [(5, 0, 0)],
+        })
+        result = OdooTools.lookup_invoices(
+            self.user_env,
+            "Restricted Invoice Customer",
+        )
+        self.assertNotIn(
+            invoice.id,
+            [row["id"] for row in result["invoices"]],
         )

@@ -774,3 +774,72 @@ class TestOdooAIToolService(TransactionCase):
             "empty response",
         ):
             OdooAIToolService.ask(self.env, self.question)
+
+    @patch(f"{PATCH_PATH}.OdooTools")
+    @patch(f"{PATCH_PATH}.OdooAIService._get_client")
+    def test_successful_crm_lead_lookup(
+        self,
+        mock_get_client,
+        mock_odoo_tools,
+    ):
+        mock_get_client.return_value = self.mock_client
+        lead_call = self._function_call(
+            name="lookup_crm_leads",
+            arguments={"query": "ERP Opportunity", "limit": 5},
+        )
+        mock_odoo_tools.lookup_crm_leads.return_value = {
+            "returned_count": 1,
+            "leads": [{
+                "id": 51,
+                "name": "ERP Opportunity",
+                "customer": "Example Customer",
+                "salesperson": "Sales User",
+                "stage": "Qualified",
+                "type": "opportunity",
+                "probability": 60.0,
+                "expected_revenue": 50000.0,
+                "currency": "INR",
+            }],
+        }
+        self.mock_client.responses.create.side_effect = [
+            self._response(output=[lead_call]),
+            self._response(output_text="ERP Opportunity is in Qualified."),
+        ]
+
+        answer = OdooAIToolService.ask(
+            self.env,
+            "Show the CRM opportunity ERP Opportunity.",
+        )
+
+        self.assertEqual(answer, "ERP Opportunity is in Qualified.")
+        mock_odoo_tools.lookup_crm_leads.assert_called_once_with(
+            self.env,
+            query="ERP Opportunity",
+            limit=5,
+        )
+
+        second_request = self.mock_client.responses.create.call_args_list[1]
+        tool_outputs = [
+            item for item in second_request.kwargs["input"]
+            if isinstance(item, dict)
+            and item.get("type") == "function_call_output"
+        ]
+        self.assertEqual(len(tool_outputs), 1)
+        payload = json.loads(tool_outputs[0]["output"])
+        self.assertEqual(payload["type"], "untrusted_crm_lead_data")
+        self.assertEqual(
+            payload["data"]["leads"][0]["name"],
+            "ERP Opportunity",
+        )
+
+    def test_crm_lead_lookup_tool_is_registered(self):
+        lead_tools = [
+            tool for tool in OdooAIToolService.TOOLS
+            if tool.get("name") == "lookup_crm_leads"
+        ]
+        self.assertEqual(len(lead_tools), 1)
+        self.assertEqual(
+            lead_tools[0]["parameters"]["required"],
+            ["query", "limit"],
+        )
+        self.assertTrue(lead_tools[0]["strict"])

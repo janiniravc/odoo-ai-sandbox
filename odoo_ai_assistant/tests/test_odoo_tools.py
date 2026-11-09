@@ -724,3 +724,98 @@ class TestOdooTools(TransactionCase):
             lead.id,
             [row["id"] for row in result["leads"]],
         )
+
+    # ---------------------------------------------------------
+    # CRM aggregate reporting tests
+    # ---------------------------------------------------------
+
+    def test_crm_pipeline_summary_report(self):
+        self._create_crm_lead(
+            "AI Report Summary Opportunity 1",
+            expected_revenue=1200.0,
+            probability=50.0,
+        )
+        self._create_crm_lead(
+            "AI Report Summary Opportunity 2",
+            expected_revenue=800.0,
+            probability=75.0,
+        )
+        result = OdooTools.get_crm_pipeline_report(
+            self.user_env,
+            "pipeline_summary",
+        )
+        self.assertEqual(result["report_type"], "pipeline_summary")
+        self.assertGreaterEqual(result["total_opportunities"], 2)
+        self.assertGreaterEqual(result["total_expected_revenue"], 2000.0)
+        self.assertEqual(len(result["groups"]), 1)
+        self.assertEqual(
+            result["groups"][0]["group"],
+            "All active opportunities",
+        )
+
+    def test_crm_pipeline_report_groups_by_stage(self):
+        lead = self._create_crm_lead(
+            "AI Report Stage Opportunity",
+            expected_revenue=1500.0,
+        )
+        result = OdooTools.get_crm_pipeline_report(
+            self.user_env,
+            "pipeline_by_stage",
+        )
+        matching = [
+            row for row in result["groups"]
+            if row["group"] == lead.stage_id.display_name
+        ]
+        self.assertTrue(matching)
+        self.assertGreaterEqual(matching[0]["opportunity_count"], 1)
+        self.assertGreaterEqual(matching[0]["expected_revenue"], 1500.0)
+
+    def test_crm_pipeline_report_groups_by_salesperson(self):
+        self._create_crm_lead(
+            "AI Report Salesperson Opportunity",
+            expected_revenue=900.0,
+        )
+        result = OdooTools.get_crm_pipeline_report(
+            self.user_env,
+            "pipeline_by_salesperson",
+        )
+        matching = [
+            row for row in result["groups"]
+            if row["group"] == self.test_user.display_name
+        ]
+        self.assertTrue(matching)
+        self.assertGreaterEqual(matching[0]["opportunity_count"], 1)
+
+    def test_crm_pipeline_report_rejects_superuser(self):
+        with self.assertRaises(AccessError):
+            OdooTools.get_crm_pipeline_report(
+                self.env(su=True),
+                "pipeline_summary",
+            )
+
+    def test_crm_pipeline_report_rejects_unsupported_type(self):
+        with self.assertRaises(UserError):
+            OdooTools.get_crm_pipeline_report(
+                self.user_env,
+                "arbitrary_domain",
+            )
+
+    def test_crm_pipeline_report_respects_record_rules(self):
+        lead = self._create_crm_lead(
+            "AI Report Restricted Opportunity",
+            expected_revenue=999999.0,
+        )
+        self.env["ir.rule"].create({
+            "name": "Temporary AI CRM report restriction",
+            "model_id": self.env["ir.model"]._get_id("crm.lead"),
+            "domain_force": "[('id', '!=', %d)]" % lead.id,
+            "groups": [(5, 0, 0)],
+        })
+        result = OdooTools.get_crm_pipeline_report(
+            self.user_env,
+            "pipeline_summary",
+        )
+        self.assertNotIn(
+            999999.0,
+            [row["expected_revenue"] for row in result["groups"]],
+        )

@@ -415,6 +415,7 @@ class OdooTools:
         domain = [
             ("active", "=", True),
             ("type", "=", "opportunity"),
+            ("company_id", "in", [False, env.company.id]),
         ]
         group_field = allowed_reports[report_type]
         groupby = [group_field] if group_field else []
@@ -444,6 +445,8 @@ class OdooTools:
                 "average_probability": probability or 0.0,
             })
 
+        # Keep the aggregate in one currency by limiting records to the
+        # current company and company-independent opportunities.
         currency = env.company.currency_id
         return {
             "report_type": report_type,

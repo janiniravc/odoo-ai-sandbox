@@ -659,3 +659,132 @@ class OdooTools:
             "returned_count": min(len(products), limit),
             "products": products[:limit],
         }
+
+    @staticmethod
+    def get_customer_sales_history_report(env, customer_query, limit=5):
+        """Return lifetime sales totals and recent orders for one customer.
+
+        Customer matching is deliberately unambiguous. Totals are grouped by
+        transaction currency and never combined across currencies. ORM access
+        rights and record rules apply to partners and sales orders.
+        """
+        if env.su:
+            raise AccessError(
+                "AI customer sales reporting cannot run in superuser mode."
+            )
+
+        if not isinstance(customer_query, str) or not customer_query.strip():
+            raise UserError("Please provide a customer name.")
+        customer_query = customer_query.strip()
+        if len(customer_query) > OdooTools.MAX_QUERY_LENGTH:
+            raise UserError(
+                f"Search text cannot exceed {OdooTools.MAX_QUERY_LENGTH} characters."
+            )
+        if (
+            not isinstance(limit, int)
+            or isinstance(limit, bool)
+            or not 1 <= limit <= 10
+        ):
+            raise UserError("Customer sales history limit must be between 1 and 10.")
+
+        Partner = env["res.partner"]
+        SaleOrder = env["sale.order"]
+        Partner.check_access("read")
+        SaleOrder.check_access("read")
+
+        matches = Partner.search(
+            [("active", "=", True), ("name", "ilike", customer_query)],
+            limit=20,
+            order="name, id",
+        )
+        # Contacts belonging to the same company represent one customer.
+        commercial_partners = matches.mapped("commercial_partner_id")
+        commercial_partners = commercial_partners.exists()
+        unique_partners = commercial_partners.sorted("id")
+        if not unique_partners:
+            return {
+                "customer": None,
+                "lifetime_totals": [],
+                "first_order_date": None,
+                "last_order_date": None,
+                "returned_order_count": 0,
+                "recent_orders": [],
+            }
+        if len(unique_partners) != 1:
+            raise UserError(
+                "Customer name is ambiguous. Please provide a more specific name."
+            )
+
+        customer = unique_partners[0]
+        domain = [
+            ("state", "in", ["sale", "done"]),
+            ("company_id", "=", env.company.id),
+            ("partner_id.commercial_partner_id", "=", customer.id),
+        ]
+        grouped_values = SaleOrder._read_group(
+            domain,
+            groupby=["currency_id"],
+            aggregates=[
+                "__count",
+                "amount_total:sum",
+                "date_order:min",
+                "date_order:max",
+            ],
+        )
+
+        lifetime_totals = []
+        first_dates = []
+        last_dates = []
+        for currency, order_count, revenue, first_order, last_order in grouped_values:
+            lifetime_totals.append({
+                "currency": currency.name if currency else None,
+                "order_count": order_count,
+                "lifetime_revenue": revenue or 0.0,
+            })
+            if first_order:
+                first_dates.append(first_order)
+            if last_order:
+                last_dates.append(last_order)
+
+        orders = SaleOrder.search_read(
+            domain,
+            fields=[
+                "id", "name", "date_order", "state", "amount_total", "currency_id"
+            ],
+            limit=limit,
+            order="date_order desc, id desc",
+        )
+        recent_orders = []
+        for order in orders:
+            currency = order.get("currency_id")
+            order_date = order.get("date_order")
+            recent_orders.append({
+                "id": order["id"],
+                "name": order["name"],
+                "date_order": (
+                    order_date.isoformat()
+                    if hasattr(order_date, "isoformat")
+                    else order_date or None
+                ),
+                "state": order["state"],
+                "amount_total": order["amount_total"],
+                "currency": currency[1] if currency else None,
+            })
+
+        lifetime_totals.sort(key=lambda item: item["currency"] or "")
+        return {
+            "customer": {
+                "id": customer.id,
+                "name": customer.display_name,
+            },
+            "lifetime_totals": lifetime_totals,
+            "first_order_date": (
+                min(first_dates).isoformat() if first_dates else None
+            ),
+            "last_order_date": (
+                max(last_dates).isoformat() if last_dates else None
+            ),
+            "returned_order_count": len(recent_orders),
+            "recent_orders": recent_orders,
+        }
+

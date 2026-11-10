@@ -1031,8 +1031,10 @@ class TestOdooAIToolService(TransactionCase):
                 "quantity_sold": 12.0,
                 "uom": "Units",
                 "sales_line_count": 3,
-                "revenue": 12000.0,
-                "currency": "INR",
+                "revenue_by_currency": [{
+                    "currency": "INR",
+                    "revenue": 12000.0,
+                }],
             }],
         }
         self.mock_client.responses.create.side_effect = [

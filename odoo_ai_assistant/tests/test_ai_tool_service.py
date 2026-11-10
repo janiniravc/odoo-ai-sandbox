@@ -843,3 +843,83 @@ class TestOdooAIToolService(TransactionCase):
             ["query", "limit"],
         )
         self.assertTrue(lead_tools[0]["strict"])
+
+    @patch(f"{PATCH_PATH}.OdooTools")
+    @patch(f"{PATCH_PATH}.OdooAIService._get_client")
+    def test_successful_crm_pipeline_report(
+        self,
+        mock_get_client,
+        mock_odoo_tools,
+    ):
+        mock_get_client.return_value = self.mock_client
+        report_call = self._function_call(
+            name="get_crm_pipeline_report",
+            arguments={"report_type": "pipeline_by_stage"},
+        )
+        mock_odoo_tools.get_crm_pipeline_report.return_value = {
+            "report_type": "pipeline_by_stage",
+            "currency": "INR",
+            "total_opportunities": 4,
+            "total_expected_revenue": 125000.0,
+            "groups": [{
+                "group": "Qualified",
+                "opportunity_count": 4,
+                "expected_revenue": 125000.0,
+                "average_probability": 60.0,
+            }],
+        }
+        self.mock_client.responses.create.side_effect = [
+            self._response(output=[report_call]),
+            self._response(
+                output_text="There are 4 qualified opportunities worth INR 125,000."
+            ),
+        ]
+
+        answer = OdooAIToolService.ask(
+            self.env,
+            "Show expected revenue grouped by CRM stage.",
+        )
+
+        self.assertEqual(
+            answer,
+            "There are 4 qualified opportunities worth INR 125,000.",
+        )
+        mock_odoo_tools.get_crm_pipeline_report.assert_called_once_with(
+            self.env,
+            report_type="pipeline_by_stage",
+        )
+        second_request = self.mock_client.responses.create.call_args_list[1]
+        tool_outputs = [
+            item for item in second_request.kwargs["input"]
+            if isinstance(item, dict)
+            and item.get("type") == "function_call_output"
+        ]
+        payload = json.loads(tool_outputs[0]["output"])
+        self.assertEqual(
+            payload["type"],
+            "untrusted_crm_aggregate_report",
+        )
+        self.assertEqual(
+            payload["data"]["groups"][0]["group"],
+            "Qualified",
+        )
+
+    def test_crm_pipeline_report_tool_is_registered(self):
+        report_tools = [
+            tool for tool in OdooAIToolService.TOOLS
+            if tool.get("name") == "get_crm_pipeline_report"
+        ]
+        self.assertEqual(len(report_tools), 1)
+        self.assertEqual(
+            report_tools[0]["parameters"]["required"],
+            ["report_type"],
+        )
+        self.assertEqual(
+            report_tools[0]["parameters"]["properties"]["report_type"]["enum"],
+            [
+                "pipeline_summary",
+                "pipeline_by_stage",
+                "pipeline_by_salesperson",
+            ],
+        )
+        self.assertTrue(report_tools[0]["strict"])

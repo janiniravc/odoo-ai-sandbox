@@ -389,3 +389,73 @@ class OdooTools:
             "returned_count": len(leads),
             "leads": leads,
         }
+
+    @staticmethod
+    def get_crm_pipeline_report(env, report_type):
+        """Return fixed, read-only CRM opportunity aggregates.
+
+        Aggregation is performed by the ORM, which applies the current user's
+        access rights and record rules. Only active opportunities are included.
+        """
+        if env.su:
+            raise AccessError(
+                "AI CRM reporting cannot run in superuser mode."
+            )
+
+        allowed_reports = {
+            "pipeline_summary": None,
+            "pipeline_by_stage": "stage_id",
+            "pipeline_by_salesperson": "user_id",
+        }
+        if report_type not in allowed_reports:
+            raise UserError("Unsupported CRM report type.")
+
+        Lead = env["crm.lead"]
+        Lead.check_access("read")
+        domain = [
+            ("active", "=", True),
+            ("type", "=", "opportunity"),
+            ("company_id", "in", [False, env.company.id]),
+        ]
+        group_field = allowed_reports[report_type]
+        groupby = [group_field] if group_field else []
+        grouped_values = Lead._read_group(
+            domain,
+            groupby=groupby,
+            aggregates=[
+                "__count",
+                "expected_revenue:sum",
+                "probability:avg",
+            ],
+        )
+
+        rows = []
+        for values in grouped_values:
+            if group_field:
+                group_record, count, expected_revenue, probability = values
+                label = group_record.display_name if group_record else "Unassigned"
+            else:
+                count, expected_revenue, probability = values
+                label = "All active opportunities"
+
+            rows.append({
+                "group": label,
+                "opportunity_count": count,
+                "expected_revenue": expected_revenue or 0.0,
+                "average_probability": probability or 0.0,
+            })
+
+        # Keep the aggregate in one currency by limiting records to the
+        # current company and company-independent opportunities.
+        currency = env.company.currency_id
+        return {
+            "report_type": report_type,
+            "currency": currency.name,
+            "total_opportunities": sum(
+                row["opportunity_count"] for row in rows
+            ),
+            "total_expected_revenue": sum(
+                row["expected_revenue"] for row in rows
+            ),
+            "groups": rows,
+        }

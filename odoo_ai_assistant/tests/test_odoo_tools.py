@@ -1081,3 +1081,148 @@ class TestOdooTools(TransactionCase):
             product.id,
             [row["product_id"] for row in result["products"]],
         )
+
+    # ---------------------------------------------------------
+    # Customer lifetime sales history tests
+    # ---------------------------------------------------------
+
+    def test_customer_sales_history_returns_lifetime_totals_and_recent_orders(self):
+        customer = self.env["res.partner"].create({
+            "name": "AI Lifetime History Customer",
+            "is_company": True,
+        })
+        first = self.env["sale.order"].create({
+            "partner_id": customer.id,
+            "user_id": self.test_user.id,
+        })
+        first.action_confirm()
+        first.write({"date_order": "2025-01-15 12:00:00"})
+        second = self.env["sale.order"].create({
+            "partner_id": customer.id,
+            "user_id": self.test_user.id,
+        })
+        second.action_confirm()
+        second.write({"date_order": "2026-02-20 12:00:00"})
+
+        result = OdooTools.get_customer_sales_history_report(
+            self.user_env,
+            "AI Lifetime History Customer",
+            limit=5,
+        )
+        self.assertEqual(
+            result["customer"]["id"],
+            customer.id,
+        )
+        self.assertEqual(
+            result["lifetime_totals"][0]["order_count"],
+            2,
+        )
+        self.assertEqual(
+            result["lifetime_totals"][0]["lifetime_revenue"],
+            first.amount_total + second.amount_total,
+        )
+        self.assertEqual(result["first_order_date"], "2025-01-15T12:00:00")
+        self.assertEqual(result["last_order_date"], "2026-02-20T12:00:00")
+        self.assertEqual(result["returned_order_count"], 2)
+        self.assertEqual(
+            {row["id"] for row in result["recent_orders"]},
+            {first.id, second.id},
+        )
+
+    def test_customer_sales_history_excludes_draft_cancelled_and_other_company_orders(self):
+        customer = self.env["res.partner"].create({
+            "name": "AI Lifetime Filter Customer",
+            "is_company": True,
+        })
+        draft = self.env["sale.order"].create({
+            "partner_id": customer.id,
+            "user_id": self.test_user.id,
+        })
+        cancelled = self.env["sale.order"].create({
+            "partner_id": customer.id,
+            "user_id": self.test_user.id,
+        })
+        cancelled.action_cancel()
+        confirmed = self.env["sale.order"].create({
+            "partner_id": customer.id,
+            "user_id": self.test_user.id,
+        })
+        confirmed.action_confirm()
+
+        result = OdooTools.get_customer_sales_history_report(
+            self.user_env,
+            "AI Lifetime Filter Customer",
+        )
+        self.assertEqual(result["lifetime_totals"][0]["order_count"], 1)
+        self.assertEqual(
+            [row["id"] for row in result["recent_orders"]],
+            [confirmed.id],
+        )
+        self.assertNotIn(draft.id, [row["id"] for row in result["recent_orders"]])
+        self.assertNotIn(cancelled.id, [row["id"] for row in result["recent_orders"]])
+
+    def test_customer_sales_history_returns_empty_result_for_unknown_customer(self):
+        result = OdooTools.get_customer_sales_history_report(
+            self.user_env,
+            "No Such AI Customer Exists",
+        )
+        self.assertIsNone(result["customer"])
+        self.assertEqual(result["lifetime_totals"], [])
+        self.assertEqual(result["recent_orders"], [])
+
+    def test_customer_sales_history_rejects_ambiguous_customer_name(self):
+        self.env["res.partner"].create({"name": "AI Ambiguous History Customer"})
+        self.env["res.partner"].create({"name": "AI Ambiguous History Customer"})
+        with self.assertRaisesRegex(UserError, "ambiguous"):
+            OdooTools.get_customer_sales_history_report(
+                self.user_env,
+                "AI Ambiguous History Customer",
+            )
+
+    def test_customer_sales_history_validates_query_and_limit(self):
+        for query in ("", "   ", 123, "x" * (OdooTools.MAX_QUERY_LENGTH + 1)):
+            with self.subTest(query=query):
+                with self.assertRaises(UserError):
+                    OdooTools.get_customer_sales_history_report(
+                        self.user_env,
+                        query,
+                    )
+        for limit in (0, -1, 11, True, "5"):
+            with self.subTest(limit=limit):
+                with self.assertRaises(UserError):
+                    OdooTools.get_customer_sales_history_report(
+                        self.user_env,
+                        "AI Lifetime History Customer",
+                        limit=limit,
+                    )
+
+    def test_customer_sales_history_rejects_superuser(self):
+        with self.assertRaises(AccessError):
+            OdooTools.get_customer_sales_history_report(
+                self.env(su=True),
+                "AI Lifetime History Customer",
+            )
+
+    def test_customer_sales_history_respects_sales_order_record_rules(self):
+        customer = self.env["res.partner"].create({
+            "name": "AI Lifetime Restricted Customer",
+            "is_company": True,
+        })
+        order = self.env["sale.order"].create({
+            "partner_id": customer.id,
+            "user_id": self.test_user.id,
+        })
+        order.action_confirm()
+        self.env["ir.rule"].create({
+            "name": "Temporary AI customer lifetime history restriction",
+            "model_id": self.env["ir.model"]._get_id("sale.order"),
+            "domain_force": "[('id', '!=', %d)]" % order.id,
+            "groups": [(5, 0, 0)],
+        })
+        result = OdooTools.get_customer_sales_history_report(
+            self.user_env,
+            "AI Lifetime Restricted Customer",
+        )
+        self.assertEqual(result["lifetime_totals"], [])
+        self.assertEqual(result["recent_orders"], [])
+

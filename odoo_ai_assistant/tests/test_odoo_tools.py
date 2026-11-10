@@ -1345,3 +1345,131 @@ class TestOdooTools(TransactionCase):
         )
         self.assertEqual(result["currency_totals"], [])
 
+
+
+    # ---------------------------------------------------------
+    # Salesperson performance reporting tests
+    # ---------------------------------------------------------
+
+    def _create_salesperson_order(self, name, salesperson, order_date, amount):
+        order = self.env["sale.order"].create({
+            "partner_id": self.partner.id,
+            "user_id": salesperson.id if salesperson else False,
+        })
+        product = self.env["product.product"].create({
+            "name": name,
+            "list_price": amount,
+        })
+        self.env["sale.order.line"].create({
+            "order_id": order.id,
+            "product_id": product.id,
+            "name": name,
+            "product_uom_qty": 1,
+            "price_unit": amount,
+        })
+        order.action_confirm()
+        order.write({"date_order": f"{order_date} 12:00:00"})
+        return order
+
+    def test_salesperson_performance_groups_and_ranks_within_currency(self):
+        first = self._create_salesperson_order(
+            "AI Salesperson Product A", self.test_user, "2026-03-10", 100.0
+        )
+        second = self._create_salesperson_order(
+            "AI Salesperson Product B", self.test_user, "2026-03-11", 200.0
+        )
+        unassigned = self._create_salesperson_order(
+            "AI Salesperson Product C", False, "2026-03-12", 50.0
+        )
+        result = OdooTools.get_salesperson_performance_report(
+            self.user_env, "2026-03-01", "2026-03-31"
+        )
+        currency = self.env.company.currency_id.name
+        totals = {row["currency"]: row for row in result["currency_totals"]}
+        self.assertEqual(totals[currency]["order_count"], 3)
+        rows = result["salespeople"]
+        assigned = next(
+            row for row in rows if row["salesperson_id"] == self.test_user.id
+        )
+        unassigned_row = next(
+            row for row in rows if row["salesperson_id"] is None
+        )
+        self.assertEqual(assigned["order_count"], 2)
+        self.assertEqual(unassigned_row["order_count"], 1)
+        self.assertEqual(
+            assigned["revenue"] + unassigned_row["revenue"],
+            totals[currency]["revenue"],
+        )
+        self.assertEqual(assigned["rank_within_currency"], 1)
+        self.assertEqual(unassigned_row["rank_within_currency"], 2)
+        self.assertEqual(result["ranking_basis"], "revenue_within_currency")
+        self.assertEqual(
+            result["date_from"], "2026-03-01"
+        )
+        self.assertEqual(
+            result["date_to"], "2026-03-31"
+        )
+        self.assertIn(first.id, [first.id, second.id])
+        self.assertEqual(len(rows), 2)
+
+    def test_salesperson_performance_excludes_draft_cancelled_and_out_of_range(self):
+        draft = self._create_sales_order("AI-SP-DRAFT")
+        draft.write({"date_order": "2026-03-10 12:00:00"})
+        cancelled = self._create_salesperson_order(
+            "AI Salesperson Cancelled", self.test_user, "2026-03-11", 100.0
+        )
+        cancelled.action_cancel()
+        outside = self._create_salesperson_order(
+            "AI Salesperson Outside", self.test_user, "2026-04-01", 100.0
+        )
+        included = self._create_salesperson_order(
+            "AI Salesperson Included", self.test_user, "2026-03-15", 100.0
+        )
+        result = OdooTools.get_salesperson_performance_report(
+            self.user_env, "2026-03-01", "2026-03-31"
+        )
+        self.assertEqual(
+            sum(row["order_count"] for row in result["currency_totals"]), 1
+        )
+        self.assertEqual(
+            sum(row["order_count"] for row in result["salespeople"]), 1
+        )
+        self.assertNotEqual(included.id, outside.id)
+        self.assertNotEqual(included.id, draft.id)
+        self.assertNotEqual(included.id, cancelled.id)
+
+    def test_salesperson_performance_validates_dates(self):
+        for date_from, date_to in (
+            ("", "2026-03-31"),
+            ("2026-3-01", "2026-03-31"),
+            ("2026-04-01", "2026-03-31"),
+            ("2025-01-01", "2026-03-31"),
+            (20260301, "2026-03-31"),
+        ):
+            with self.subTest(date_from=date_from, date_to=date_to):
+                with self.assertRaises(UserError):
+                    OdooTools.get_salesperson_performance_report(
+                        self.user_env, date_from, date_to
+                    )
+
+    def test_salesperson_performance_rejects_superuser(self):
+        with self.assertRaises(AccessError):
+            OdooTools.get_salesperson_performance_report(
+                self.env(su=True), "2026-03-01", "2026-03-31"
+            )
+
+    def test_salesperson_performance_respects_sales_order_record_rules(self):
+        order = self._create_salesperson_order(
+            "AI Salesperson Restricted", self.test_user, "2026-03-15", 100.0
+        )
+        self.env["ir.rule"].create({
+            "name": "Temporary AI salesperson report restriction",
+            "model_id": self.env["ir.model"]._get_id("sale.order"),
+            "domain_force": "[('id', '!=', %d)]" % order.id,
+            "groups": [(5, 0, 0)],
+        })
+        result = OdooTools.get_salesperson_performance_report(
+            self.user_env, "2026-03-01", "2026-03-31"
+        )
+        self.assertEqual(result["currency_totals"], [])
+        self.assertEqual(result["salespeople"], [])

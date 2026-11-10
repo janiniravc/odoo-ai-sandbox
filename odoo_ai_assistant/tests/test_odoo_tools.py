@@ -1372,13 +1372,13 @@ class TestOdooTools(TransactionCase):
         return order
 
     def test_salesperson_performance_groups_and_ranks_within_currency(self):
-        first = self._create_salesperson_order(
+        self._create_salesperson_order(
             "AI Salesperson Product A", self.test_user, "2026-03-10", 100.0
         )
-        second = self._create_salesperson_order(
+        self._create_salesperson_order(
             "AI Salesperson Product B", self.test_user, "2026-03-11", 200.0
         )
-        unassigned = self._create_salesperson_order(
+        self._create_salesperson_order(
             "AI Salesperson Product C", False, "2026-03-12", 50.0
         )
         result = OdooTools.get_salesperson_performance_report(
@@ -1400,6 +1400,7 @@ class TestOdooTools(TransactionCase):
             assigned["revenue"] + unassigned_row["revenue"],
             totals[currency]["revenue"],
         )
+        self.assertGreater(assigned["revenue"], unassigned_row["revenue"])
         self.assertEqual(assigned["rank_within_currency"], 1)
         self.assertEqual(unassigned_row["rank_within_currency"], 2)
         self.assertEqual(result["ranking_basis"], "revenue_within_currency")
@@ -1409,7 +1410,6 @@ class TestOdooTools(TransactionCase):
         self.assertEqual(
             result["date_to"], "2026-03-31"
         )
-        self.assertIn(first.id, [first.id, second.id])
         self.assertEqual(len(rows), 2)
 
     def test_salesperson_performance_excludes_draft_cancelled_and_out_of_range(self):

@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 from odoo.exceptions import AccessError, UserError
 
 
@@ -458,4 +460,90 @@ class OdooTools:
                 row["expected_revenue"] for row in rows
             ),
             "groups": rows,
+        }
+
+
+    @staticmethod
+    def get_sales_performance_report(env, date_from, date_to, group_by="month"):
+        """Aggregate confirmed sales orders over a bounded date range.
+
+        Results are separated by transaction currency to avoid adding amounts
+        that belong to different currencies. ORM grouping applies access rights
+        and record rules for the current user.
+        """
+        if env.su:
+            raise AccessError(
+                "AI sales reporting cannot run in superuser mode."
+            )
+
+        if not isinstance(date_from, str) or not isinstance(date_to, str):
+            raise UserError("Report dates must use YYYY-MM-DD format.")
+
+        try:
+            start_date = date.fromisoformat(date_from)
+            end_date = date.fromisoformat(date_to)
+        except ValueError:
+            raise UserError("Report dates must use YYYY-MM-DD format.") from None
+
+        if start_date.isoformat() != date_from or end_date.isoformat() != date_to:
+            raise UserError("Report dates must use YYYY-MM-DD format.")
+        if end_date < start_date:
+            raise UserError("The report end date must not be before the start date.")
+        if (end_date - start_date).days > 365:
+            raise UserError("The report date range cannot exceed 366 days.")
+
+        if group_by not in ("day", "week", "month"):
+            raise UserError("Unsupported sales report grouping.")
+
+        SaleOrder = env["sale.order"]
+        SaleOrder.check_access("read")
+        end_exclusive = end_date + timedelta(days=1)
+        domain = [
+            ("state", "in", ["sale", "done"]),
+            ("date_order", ">=", f"{date_from} 00:00:00"),
+            ("date_order", "<", f"{end_exclusive.isoformat()} 00:00:00"),
+            ("company_id", "=", env.company.id),
+        ]
+        grouped_values = SaleOrder._read_group(
+            domain,
+            groupby=[f"date_order:{group_by}", "currency_id"],
+            aggregates=["__count", "amount_total:sum"],
+        )
+
+        rows = []
+        totals_by_currency = {}
+        for period_value, currency_record, order_count, revenue in grouped_values:
+            period = (
+                period_value.isoformat()
+                if hasattr(period_value, "isoformat")
+                else str(period_value)
+            )
+            currency_name = currency_record.name if currency_record else None
+            rows.append({
+                "period": period,
+                "currency": currency_name,
+                "order_count": order_count,
+                "revenue": revenue or 0.0,
+            })
+            key = currency_record.id if currency_record else False
+            if key not in totals_by_currency:
+                totals_by_currency[key] = {
+                    "currency": currency_name,
+                    "order_count": 0,
+                    "revenue": 0.0,
+                }
+            totals_by_currency[key]["order_count"] += order_count
+            totals_by_currency[key]["revenue"] += revenue or 0.0
+
+        rows.sort(key=lambda row: (row["period"], row["currency"] or ""))
+        currency_totals = sorted(
+            totals_by_currency.values(),
+            key=lambda item: item["currency"] or "",
+        )
+        return {
+            "date_from": date_from,
+            "date_to": date_to,
+            "group_by": group_by,
+            "currency_totals": currency_totals,
+            "periods": rows,
         }

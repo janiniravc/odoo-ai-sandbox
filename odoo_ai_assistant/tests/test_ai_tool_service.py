@@ -923,3 +923,81 @@ class TestOdooAIToolService(TransactionCase):
             ],
         )
         self.assertTrue(report_tools[0]["strict"])
+
+
+    @patch(f"{PATCH_PATH}.OdooTools")
+    @patch(f"{PATCH_PATH}.OdooAIService._get_client")
+    def test_successful_sales_performance_report(
+        self,
+        mock_get_client,
+        mock_odoo_tools,
+    ):
+        mock_get_client.return_value = self.mock_client
+        report_call = self._function_call(
+            name="get_sales_performance_report",
+            arguments={
+                "date_from": "2026-01-01",
+                "date_to": "2026-03-31",
+                "group_by": "month",
+            },
+        )
+        mock_odoo_tools.get_sales_performance_report.return_value = {
+            "date_from": "2026-01-01",
+            "date_to": "2026-03-31",
+            "group_by": "month",
+            "currency_totals": [{
+                "currency": "INR",
+                "order_count": 3,
+                "revenue": 125000.0,
+            }],
+            "periods": [{
+                "period": "2026-01-01",
+                "currency": "INR",
+                "order_count": 3,
+                "revenue": 125000.0,
+            }],
+        }
+        self.mock_client.responses.create.side_effect = [
+            self._response(output=[report_call]),
+            self._response(output_text="Three sales orders total INR 125,000."),
+        ]
+
+        answer = OdooAIToolService.ask(
+            self.env,
+            "Show monthly sales performance from January to March 2026.",
+        )
+
+        self.assertEqual(answer, "Three sales orders total INR 125,000.")
+        mock_odoo_tools.get_sales_performance_report.assert_called_once_with(
+            self.env,
+            date_from="2026-01-01",
+            date_to="2026-03-31",
+            group_by="month",
+        )
+        second_request = self.mock_client.responses.create.call_args_list[1]
+        tool_outputs = [
+            item for item in second_request.kwargs["input"]
+            if isinstance(item, dict)
+            and item.get("type") == "function_call_output"
+        ]
+        payload = json.loads(tool_outputs[0]["output"])
+        self.assertEqual(
+            payload["type"],
+            "untrusted_sales_performance_report",
+        )
+
+    def test_sales_performance_report_tool_is_registered(self):
+        report_tools = [
+            tool for tool in OdooAIToolService.TOOLS
+            if tool.get("name") == "get_sales_performance_report"
+        ]
+        self.assertEqual(len(report_tools), 1)
+        self.assertEqual(
+            report_tools[0]["parameters"]["required"],
+            ["date_from", "date_to", "group_by"],
+        )
+        self.assertEqual(
+            report_tools[0]["parameters"]["properties"]["group_by"]["enum"],
+            ["day", "week", "month"],
+        )
+        self.assertTrue(report_tools[0]["strict"])

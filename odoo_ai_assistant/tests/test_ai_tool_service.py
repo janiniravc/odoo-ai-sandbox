@@ -1190,3 +1190,98 @@ class TestOdooAIToolService(TransactionCase):
                 "Show lifetime sales history for Lifetime Example Ltd.",
             )
 
+
+
+    @patch(f"{PATCH_PATH}.OdooTools")
+    @patch(f"{PATCH_PATH}.OdooAIService._get_client")
+    def test_successful_outstanding_receivables_report(
+        self,
+        mock_get_client,
+        mock_odoo_tools,
+    ):
+        mock_get_client.return_value = self.mock_client
+        report_call = self._function_call(
+            name="get_outstanding_receivables_report",
+            arguments={"date_as_of": "2026-11-10", "limit": 5},
+        )
+        mock_odoo_tools.get_outstanding_receivables_report.return_value = {
+            "date_as_of": "2026-11-10",
+            "currency_totals": [{
+                "currency": "INR",
+                "invoice_count": 2,
+                "amount_due": 750.0,
+            }],
+            "aging": [{
+                "bucket": "1_30_days",
+                "label": "1–30 days overdue",
+                "currency_totals": [{
+                    "currency": "INR",
+                    "invoice_count": 1,
+                    "amount_due": 250.0,
+                }],
+            }],
+            "overdue_invoice_count_returned": 1,
+            "overdue_invoices": [],
+        }
+        self.mock_client.responses.create.side_effect = [
+            self._response(output=[report_call]),
+            self._response(output_text="There are INR 750 outstanding."),
+        ]
+
+        answer = OdooAIToolService.ask(
+            self.env,
+            "Show outstanding customer receivables as of 10 November 2026.",
+        )
+
+        self.assertEqual(answer, "There are INR 750 outstanding.")
+        mock_odoo_tools.get_outstanding_receivables_report.assert_called_once_with(
+            self.env,
+            date_as_of="2026-11-10",
+            limit=5,
+        )
+        second_request = self.mock_client.responses.create.call_args_list[1]
+        tool_outputs = [
+            item for item in second_request.kwargs["input"]
+            if isinstance(item, dict)
+            and item.get("type") == "function_call_output"
+        ]
+        payload = json.loads(tool_outputs[0]["output"])
+        self.assertEqual(
+            payload["type"],
+            "untrusted_outstanding_receivables_report",
+        )
+
+    def test_outstanding_receivables_report_tool_is_registered(self):
+        report_tools = [
+            tool for tool in OdooAIToolService.TOOLS
+            if tool.get("name") == "get_outstanding_receivables_report"
+        ]
+        self.assertEqual(len(report_tools), 1)
+        self.assertEqual(
+            report_tools[0]["parameters"]["required"],
+            ["date_as_of", "limit"],
+        )
+        self.assertTrue(report_tools[0]["strict"])
+
+    @patch(f"{PATCH_PATH}.OdooAIService._get_client")
+    def test_outstanding_receivables_report_rejects_invalid_arguments(
+        self,
+        mock_get_client,
+    ):
+        mock_get_client.return_value = self.mock_client
+        report_call = self._function_call(
+            name="get_outstanding_receivables_report",
+            arguments={"date_as_of": "2026-11-10", "limit": True},
+        )
+        self.mock_client.responses.create.return_value = (
+            self._response(output=[report_call])
+        )
+        with self.assertRaisesRegex(
+            UserError,
+            "Odoo data lookup could not be completed",
+        ):
+            OdooAIToolService.ask(
+                self.env,
+                "Show outstanding receivables as of 10 November 2026.",
+            )
+

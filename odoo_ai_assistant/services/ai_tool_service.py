@@ -225,6 +225,33 @@ class OdooAIToolService:
             },
             "strict": True,
         },
+
+        {
+            "type": "function",
+            "name": "get_outstanding_receivables_report",
+            "description": (
+                "Summarize posted customer invoices with an outstanding balance "
+                "for the current company as of a date. Return receivables totals "
+                "and due-date aging buckets separately by currency, plus a bounded "
+                "list of the oldest overdue invoices. Never combine currencies."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "date_as_of": {
+                        "type": "string",
+                        "description": "Aging date in YYYY-MM-DD format.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum overdue invoice details to return, from 1 to 10.",
+                    },
+                },
+                "required": ["date_as_of", "limit"],
+                "additionalProperties": False,
+            },
+            "strict": True,
+        },
         {
             "type": "function",
             "name": "get_customer_sales_history_report",
@@ -367,6 +394,7 @@ class OdooAIToolService:
                     "lookup_crm_leads", "get_crm_pipeline_report",
                     "get_sales_performance_report", "get_top_selling_products_report",
                     "get_customer_sales_history_report",
+                    "get_outstanding_receivables_report",
                 ):
                     raise UserError("The AI requested an unsupported tool.")
 
@@ -406,6 +434,24 @@ class OdooAIToolService:
                             group_by=group_by,
                         )
                         data_type = "untrusted_sales_performance_report"
+
+                    elif tool_call.name == "get_outstanding_receivables_report":
+                        if set(arguments) != {"date_as_of", "limit"}:
+                            raise ValueError("Unexpected receivables report arguments.")
+                        date_as_of = arguments["date_as_of"]
+                        limit = arguments["limit"]
+                        if not isinstance(date_as_of, str):
+                            raise ValueError("Receivables report date must be a string.")
+                        if not isinstance(limit, int) or isinstance(limit, bool):
+                            raise ValueError("Receivables report limit must be an integer.")
+                        if not 1 <= limit <= 10:
+                            raise ValueError("Receivables report limit must be between 1 and 10.")
+                        result = OdooTools.get_outstanding_receivables_report(
+                            env,
+                            date_as_of=date_as_of,
+                            limit=limit,
+                        )
+                        data_type = "untrusted_outstanding_receivables_report"
                     elif tool_call.name == "get_customer_sales_history_report":
                         if set(arguments) != {"customer_query", "limit"}:
                             raise ValueError("Unexpected customer sales history arguments.")
@@ -457,6 +503,7 @@ class OdooAIToolService:
                         "get_sales_performance_report",
                         "get_top_selling_products_report",
                         "get_customer_sales_history_report",
+                        "get_outstanding_receivables_report",
                     ):
                         pass
                     elif tool_call.name == "lookup_customers":

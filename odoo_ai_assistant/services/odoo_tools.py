@@ -660,6 +660,155 @@ class OdooTools:
             "products": products[:limit],
         }
 
+
+    @staticmethod
+    def get_outstanding_receivables_report(env, date_as_of, limit=10):
+        """Summarize posted, unpaid customer invoices using due-date aging.
+
+        All amounts remain separated by invoice currency. Aggregation and
+        invoice detail searches use the current user's ORM access and record
+        rules and are restricted to the current company.
+        """
+        if env.su:
+            raise AccessError(
+                "AI receivables reporting cannot run in superuser mode."
+            )
+
+        if not isinstance(date_as_of, str):
+            raise UserError("The report date must use YYYY-MM-DD format.")
+        try:
+            as_of = date.fromisoformat(date_as_of)
+        except ValueError:
+            raise UserError("The report date must use YYYY-MM-DD format.") from None
+        if as_of.isoformat() != date_as_of:
+            raise UserError("The report date must use YYYY-MM-DD format.")
+
+        if (
+            not isinstance(limit, int)
+            or isinstance(limit, bool)
+            or limit < 1
+            or limit > 10
+        ):
+            raise UserError("The invoice detail limit must be between 1 and 10.")
+
+        Move = env["account.move"]
+        Move.check_access("read")
+        base_domain = [
+            ("move_type", "=", "out_invoice"),
+            ("state", "=", "posted"),
+            ("amount_residual", ">", 0),
+            ("company_id", "=", env.company.id),
+        ]
+        buckets = [
+            ("not_yet_due", "Not yet due", [("invoice_date_due", ">=", date_as_of)]),
+            (
+                "1_30_days",
+                "1–30 days overdue",
+                [
+                    ("invoice_date_due", ">=", (as_of - timedelta(days=30)).isoformat()),
+                    ("invoice_date_due", "<", date_as_of),
+                ],
+            ),
+            (
+                "31_60_days",
+                "31–60 days overdue",
+                [
+                    ("invoice_date_due", ">=", (as_of - timedelta(days=60)).isoformat()),
+                    ("invoice_date_due", "<", (as_of - timedelta(days=30)).isoformat()),
+                ],
+            ),
+            (
+                "61_90_days",
+                "61–90 days overdue",
+                [
+                    ("invoice_date_due", ">=", (as_of - timedelta(days=90)).isoformat()),
+                    ("invoice_date_due", "<", (as_of - timedelta(days=60)).isoformat()),
+                ],
+            ),
+            (
+                "over_90_days",
+                "More than 90 days overdue",
+                [("invoice_date_due", "<", (as_of - timedelta(days=90)).isoformat())],
+            ),
+            ("no_due_date", "No due date", [("invoice_date_due", "=", False)]),
+        ]
+
+        currency_totals = {}
+        aging = []
+        for key, label, date_domain in buckets:
+            grouped = Move._read_group(
+                base_domain + date_domain,
+                groupby=["currency_id"],
+                aggregates=["__count", "amount_residual:sum"],
+            )
+            currency_rows = []
+            for currency, count, amount_due in grouped:
+                currency_name = currency.name if currency else env.company.currency_id.name
+                amount_due = amount_due or 0.0
+                currency_rows.append({
+                    "currency": currency_name,
+                    "invoice_count": count,
+                    "amount_due": amount_due,
+                })
+                total = currency_totals.setdefault(
+                    currency_name,
+                    {"currency": currency_name, "invoice_count": 0, "amount_due": 0.0},
+                )
+                total["invoice_count"] += count
+                total["amount_due"] += amount_due
+            aging.append({
+                "bucket": key,
+                "label": label,
+                "currency_totals": currency_rows,
+            })
+
+        overdue_domain = base_domain + [
+            ("invoice_date_due", "<", date_as_of),
+        ]
+        records = Move.search_read(
+            overdue_domain,
+            fields=[
+                "id", "name", "partner_id", "invoice_date",
+                "invoice_date_due", "amount_residual", "currency_id",
+                "payment_state",
+            ],
+            limit=limit,
+            order="invoice_date_due asc, id asc",
+        )
+        overdue_invoices = []
+        for record in records:
+            due_date = record.get("invoice_date_due")
+            if hasattr(due_date, "date"):
+                due_date = due_date.date()
+            elif isinstance(due_date, str):
+                due_date = date.fromisoformat(due_date)
+            days_overdue = (as_of - due_date).days if due_date else None
+            partner = record.get("partner_id")
+            currency = record.get("currency_id")
+            overdue_invoices.append({
+                "id": record["id"],
+                "name": record["name"],
+                "customer": partner[1] if partner else None,
+                "invoice_date": (
+                    record["invoice_date"].isoformat()
+                    if hasattr(record.get("invoice_date"), "isoformat")
+                    else record.get("invoice_date") or None
+                ),
+                "due_date": due_date.isoformat() if due_date else None,
+                "days_overdue": days_overdue,
+                "amount_due": record["amount_residual"],
+                "currency": currency[1] if currency else None,
+                "payment_state": record.get("payment_state"),
+            })
+
+        return {
+            "date_as_of": date_as_of,
+            "currency_totals": list(currency_totals.values()),
+            "aging": aging,
+            "overdue_invoice_count_returned": len(overdue_invoices),
+            "overdue_invoices": overdue_invoices,
+        }
+
     @staticmethod
     def get_customer_sales_history_report(env, customer_query, limit=5):
         """Return lifetime sales totals and recent orders for one customer.

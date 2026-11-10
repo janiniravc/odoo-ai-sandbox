@@ -1226,3 +1226,122 @@ class TestOdooTools(TransactionCase):
         self.assertEqual(result["lifetime_totals"], [])
         self.assertEqual(result["recent_orders"], [])
 
+
+
+    # ---------------------------------------------------------
+    # Outstanding receivables report tests
+    # ---------------------------------------------------------
+
+    def _create_receivables_invoice(self, customer_name, due_date, amount=250.0):
+        partner = self.env["res.partner"].create({"name": customer_name})
+        income_account = self.env["account.account"].search([
+            ("account_type", "=", "income"),
+            ("company_ids", "in", self.env.company.id),
+        ], limit=1)
+        if not income_account:
+            raise AssertionError("An income account is required for invoice tests.")
+        invoice = self.env["account.move"].create({
+            "move_type": "out_invoice",
+            "partner_id": partner.id,
+            "invoice_date": "2026-01-01",
+            "invoice_date_due": due_date,
+            "invoice_line_ids": [(0, 0, {
+                "name": "AI receivables test service",
+                "quantity": 1,
+                "price_unit": amount,
+                "account_id": income_account.id,
+            })],
+        })
+        invoice.action_post()
+        return invoice
+
+    def test_outstanding_receivables_report_returns_aging_and_overdue_details(self):
+        overdue = self._create_receivables_invoice(
+            "AI Receivables Overdue Customer", "2026-09-15", 250.0
+        )
+        current = self._create_receivables_invoice(
+            "AI Receivables Current Customer", "2026-12-15", 500.0
+        )
+        result = OdooTools.get_outstanding_receivables_report(
+            self.user_env, "2026-11-10", limit=5
+        )
+        totals = {row["currency"]: row for row in result["currency_totals"]}
+        currency = self.env.company.currency_id.name
+        self.assertEqual(totals[currency]["invoice_count"], 2)
+        self.assertEqual(totals[currency]["amount_due"], 750.0)
+        buckets = {row["bucket"]: row for row in result["aging"]}
+        overdue_total = sum(
+            row["amount_due"]
+            for row in buckets["1_30_days"]["currency_totals"]
+        )
+        self.assertEqual(overdue_total, 250.0)
+        current_total = sum(
+            row["amount_due"]
+            for row in buckets["not_yet_due"]["currency_totals"]
+        )
+        self.assertEqual(current_total, 500.0)
+        detail = next(
+            row for row in result["overdue_invoices"]
+            if row["id"] == overdue.id
+        )
+        self.assertEqual(detail["days_overdue"], 56)
+        self.assertEqual(detail["amount_due"], 250.0)
+        self.assertNotIn(
+            current.id,
+            [row["id"] for row in result["overdue_invoices"]],
+        )
+
+    def test_outstanding_receivables_excludes_draft_and_cancelled_invoices(self):
+        draft = self._create_receivables_invoice(
+            "AI Receivables Draft Customer", "2026-10-01"
+        )
+        draft.button_draft()
+        cancelled = self._create_receivables_invoice(
+            "AI Receivables Cancelled Customer", "2026-10-01"
+        )
+        cancelled.button_cancel()
+        result = OdooTools.get_outstanding_receivables_report(
+            self.user_env, "2026-11-10"
+        )
+        self.assertEqual(result["currency_totals"], [])
+        self.assertEqual(result["overdue_invoices"], [])
+
+    def test_outstanding_receivables_rejects_superuser(self):
+        with self.assertRaises(AccessError):
+            OdooTools.get_outstanding_receivables_report(
+                self.env(su=True), "2026-11-10"
+            )
+
+    def test_outstanding_receivables_validates_date_and_limit(self):
+        for date_value in ("", "2026-2-01", "not-a-date", 20261110):
+            with self.subTest(date_value=date_value):
+                with self.assertRaises(UserError):
+                    OdooTools.get_outstanding_receivables_report(
+                        self.user_env, date_value
+                    )
+        for limit in (0, 11, True, "5"):
+            with self.subTest(limit=limit):
+                with self.assertRaises(UserError):
+                    OdooTools.get_outstanding_receivables_report(
+                        self.user_env, "2026-11-10", limit=limit
+                    )
+
+    def test_outstanding_receivables_respects_invoice_record_rules(self):
+        invoice = self._create_receivables_invoice(
+            "AI Receivables Restricted Customer", "2026-10-01"
+        )
+        self.env["ir.rule"].create({
+            "name": "Temporary AI receivables invoice restriction",
+            "model_id": self.env["ir.model"]._get_id("account.move"),
+            "domain_force": "[('id', '!=', %d)]" % invoice.id,
+            "groups": [(5, 0, 0)],
+        })
+        result = OdooTools.get_outstanding_receivables_report(
+            self.user_env, "2026-11-10"
+        )
+        self.assertNotIn(
+            invoice.id,
+            [row["id"] for row in result["overdue_invoices"]],
+        )
+        self.assertEqual(result["currency_totals"], [])
+

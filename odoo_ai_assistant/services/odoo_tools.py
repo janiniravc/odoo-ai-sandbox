@@ -611,27 +611,45 @@ class OdooTools:
             ],
         )
 
-        products = []
+        products_by_key = {}
         for product, uom, currency, line_count, quantity, revenue in grouped_values:
             if not product:
                 continue
-            products.append({
-                "product_id": product.id,
-                "product": product.display_name,
-                "default_code": product.default_code or None,
-                "quantity_sold": quantity or 0.0,
-                "uom": uom.name if uom else None,
-                "sales_line_count": line_count,
-                "revenue": revenue or 0.0,
-                "currency": currency.name if currency else None,
-            })
+            key = (product.id, uom.id if uom else False)
+            if key not in products_by_key:
+                products_by_key[key] = {
+                    "product_id": product.id,
+                    "product": product.display_name,
+                    "default_code": product.default_code or None,
+                    "quantity_sold": 0.0,
+                    "uom": uom.name if uom else None,
+                    "sales_line_count": 0,
+                    "revenue_by_currency": {},
+                }
+            item = products_by_key[key]
+            item["quantity_sold"] += quantity or 0.0
+            item["sales_line_count"] += line_count
+            currency_name = currency.name if currency else None
+            if currency_name not in item["revenue_by_currency"]:
+                item["revenue_by_currency"][currency_name] = 0.0
+            item["revenue_by_currency"][currency_name] += revenue or 0.0
+
+        products = list(products_by_key.values())
+        for item in products:
+            item["revenue_by_currency"] = [
+                {"currency": currency, "revenue": revenue}
+                for currency, revenue in sorted(
+                    item["revenue_by_currency"].items(),
+                    key=lambda pair: pair[0] or "",
+                )
+            ]
 
         # Rank by quantity, never by revenue across unlike currencies.
         products.sort(
             key=lambda item: (
                 -item["quantity_sold"],
                 item["product"].casefold(),
-                item["currency"] or "",
+                item["uom"] or "",
             )
         )
         return {

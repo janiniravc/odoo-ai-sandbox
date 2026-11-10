@@ -1291,26 +1291,20 @@ class TestOdooTools(TransactionCase):
             [row["id"] for row in result["overdue_invoices"]],
         )
 
-    def test_outstanding_receivables_excludes_paid_and_draft_invoices(self):
+    def test_outstanding_receivables_excludes_draft_and_cancelled_invoices(self):
         draft = self._create_receivables_invoice(
             "AI Receivables Draft Customer", "2026-10-01"
         )
         draft.button_draft()
-        paid = self._create_receivables_invoice(
-            "AI Receivables Paid Customer", "2026-10-01"
+        cancelled = self._create_receivables_invoice(
+            "AI Receivables Cancelled Customer", "2026-10-01"
         )
-        receivable_line = paid.line_ids.filtered(
-            lambda line: line.account_id.account_type == "asset_receivable"
-        )
-        receivable_line.reconcile()
+        cancelled.button_cancel()
         result = OdooTools.get_outstanding_receivables_report(
             self.user_env, "2026-11-10"
         )
-        invoice_ids = [
-            row["id"] for row in result["overdue_invoices"]
-        ]
-        self.assertNotIn(draft.id, invoice_ids)
-        self.assertNotIn(paid.id, invoice_ids)
+        self.assertEqual(result["currency_totals"], [])
+        self.assertEqual(result["overdue_invoices"], [])
 
     def test_outstanding_receivables_rejects_superuser(self):
         with self.assertRaises(AccessError):

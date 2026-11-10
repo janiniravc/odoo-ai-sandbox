@@ -1001,3 +1001,84 @@ class TestOdooAIToolService(TransactionCase):
             ["day", "week", "month"],
         )
         self.assertTrue(report_tools[0]["strict"])
+
+
+    @patch(f"{PATCH_PATH}.OdooTools")
+    @patch(f"{PATCH_PATH}.OdooAIService._get_client")
+    def test_successful_top_selling_products_report(
+        self,
+        mock_get_client,
+        mock_odoo_tools,
+    ):
+        mock_get_client.return_value = self.mock_client
+        report_call = self._function_call(
+            name="get_top_selling_products_report",
+            arguments={
+                "date_from": "2026-03-01",
+                "date_to": "2026-03-31",
+                "limit": 5,
+            },
+        )
+        mock_odoo_tools.get_top_selling_products_report.return_value = {
+            "date_from": "2026-03-01",
+            "date_to": "2026-03-31",
+            "ranking": "quantity_sold",
+            "returned_count": 1,
+            "products": [{
+                "product_id": 71,
+                "product": "AI Top Seller",
+                "default_code": "TOP-001",
+                "quantity_sold": 12.0,
+                "uom": "Units",
+                "sales_line_count": 3,
+                "revenue": 12000.0,
+                "currency": "INR",
+            }],
+        }
+        self.mock_client.responses.create.side_effect = [
+            self._response(output=[report_call]),
+            self._response(output_text="AI Top Seller sold 12 units for INR 12,000."),
+        ]
+
+        answer = OdooAIToolService.ask(
+            self.env,
+            "Show the top-selling products for March 2026.",
+        )
+
+        self.assertEqual(
+            answer,
+            "AI Top Seller sold 12 units for INR 12,000.",
+        )
+        mock_odoo_tools.get_top_selling_products_report.assert_called_once_with(
+            self.env,
+            date_from="2026-03-01",
+            date_to="2026-03-31",
+            limit=5,
+        )
+        second_request = self.mock_client.responses.create.call_args_list[1]
+        tool_outputs = [
+            item for item in second_request.kwargs["input"]
+            if isinstance(item, dict)
+            and item.get("type") == "function_call_output"
+        ]
+        payload = json.loads(tool_outputs[0]["output"])
+        self.assertEqual(
+            payload["type"],
+            "untrusted_top_selling_products_report",
+        )
+        self.assertEqual(
+            payload["data"]["products"][0]["product_id"],
+            71,
+        )
+
+    def test_top_selling_products_report_tool_is_registered(self):
+        report_tools = [
+            tool for tool in OdooAIToolService.TOOLS
+            if tool.get("name") == "get_top_selling_products_report"
+        ]
+        self.assertEqual(len(report_tools), 1)
+        self.assertEqual(
+            report_tools[0]["parameters"]["required"],
+            ["date_from", "date_to", "limit"],
+        )
+        self.assertTrue(report_tools[0]["strict"])

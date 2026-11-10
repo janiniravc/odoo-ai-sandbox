@@ -365,7 +365,8 @@ class OdooAIToolService:
                     "lookup_customers", "lookup_products",
                     "lookup_sales_orders", "lookup_invoices",
                     "lookup_crm_leads", "get_crm_pipeline_report",
-                    "get_sales_performance_report", "get_top_selling_products_report",\n                    "get_customer_sales_history_report",
+                    "get_sales_performance_report", "get_top_selling_products_report",
+                    "get_customer_sales_history_report",
                 ):
                     raise UserError("The AI requested an unsupported tool.")
 

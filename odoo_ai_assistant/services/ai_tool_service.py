@@ -254,6 +254,32 @@ class OdooAIToolService:
         },
         {
             "type": "function",
+            "name": "get_salesperson_performance_report",
+            "description": (
+                "Compare salesperson performance using confirmed sales orders "
+                "within an inclusive date range. Return order counts and revenue "
+                "grouped by salesperson and transaction currency. Rank salespeople "
+                "by revenue only within the same currency; never compare different currencies."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "date_from": {
+                        "type": "string",
+                        "description": "Start date inclusive in YYYY-MM-DD format.",
+                    },
+                    "date_to": {
+                        "type": "string",
+                        "description": "End date inclusive in YYYY-MM-DD format.",
+                    },
+                },
+                "required": ["date_from", "date_to"],
+                "additionalProperties": False,
+            },
+            "strict": True,
+        },
+        {
+            "type": "function",
             "name": "get_customer_sales_history_report",
             "description": (
                 "Show a customer's lifetime confirmed sales history for the current "
@@ -395,6 +421,7 @@ class OdooAIToolService:
                     "get_sales_performance_report", "get_top_selling_products_report",
                     "get_customer_sales_history_report",
                     "get_outstanding_receivables_report",
+                    "get_salesperson_performance_report",
                 ):
                     raise UserError("The AI requested an unsupported tool.")
 
@@ -452,6 +479,17 @@ class OdooAIToolService:
                             limit=limit,
                         )
                         data_type = "untrusted_outstanding_receivables_report"
+                    elif tool_call.name == "get_salesperson_performance_report":
+                        if set(arguments) != {"date_from", "date_to"}:
+                            raise ValueError("Unexpected salesperson report arguments.")
+                        date_from = arguments["date_from"]
+                        date_to = arguments["date_to"]
+                        result = OdooTools.get_salesperson_performance_report(
+                            env,
+                            date_from=date_from,
+                            date_to=date_to,
+                        )
+                        data_type = "untrusted_salesperson_performance_report"
                     elif tool_call.name == "get_customer_sales_history_report":
                         if set(arguments) != {"customer_query", "limit"}:
                             raise ValueError("Unexpected customer sales history arguments.")
@@ -504,6 +542,7 @@ class OdooAIToolService:
                         "get_top_selling_products_report",
                         "get_customer_sales_history_report",
                         "get_outstanding_receivables_report",
+                        "get_salesperson_performance_report",
                     ):
                         pass
                     elif tool_call.name == "lookup_customers":

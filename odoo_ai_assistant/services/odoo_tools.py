@@ -809,6 +809,102 @@ class OdooTools:
             "overdue_invoices": overdue_invoices,
         }
 
+
+    @staticmethod
+    def get_salesperson_performance_report(env, date_from, date_to):
+        """Compare salesperson order counts and revenue over a date range.
+
+        Only confirmed orders for the current company are included. Results
+        are grouped by salesperson and transaction currency; rankings are
+        calculated independently within each currency. ORM aggregation
+        enforces the current user's access rights and record rules.
+        """
+        if env.su:
+            raise AccessError(
+                "AI salesperson reporting cannot run in superuser mode."
+            )
+
+        if not isinstance(date_from, str) or not isinstance(date_to, str):
+            raise UserError("Report dates must use YYYY-MM-DD format.")
+        try:
+            start_date = date.fromisoformat(date_from)
+            end_date = date.fromisoformat(date_to)
+        except ValueError:
+            raise UserError("Report dates must use YYYY-MM-DD format.") from None
+        if start_date.isoformat() != date_from or end_date.isoformat() != date_to:
+            raise UserError("Report dates must use YYYY-MM-DD format.")
+        if end_date < start_date:
+            raise UserError("The report end date must not be before the start date.")
+        if (end_date - start_date).days > 365:
+            raise UserError("The report date range cannot exceed 366 days.")
+
+        SaleOrder = env["sale.order"]
+        SaleOrder.check_access("read")
+        end_exclusive = end_date + timedelta(days=1)
+        domain = [
+            ("state", "in", ["sale", "done"]),
+            ("date_order", ">=", f"{date_from} 00:00:00"),
+            ("date_order", "<", f"{end_exclusive.isoformat()} 00:00:00"),
+            ("company_id", "=", env.company.id),
+        ]
+        grouped_values = SaleOrder._read_group(
+            domain,
+            groupby=["user_id", "currency_id"],
+            aggregates=["__count", "amount_total:sum"],
+        )
+
+        grouped_rows = []
+        totals_by_currency = {}
+        for salesperson, currency, order_count, revenue in grouped_values:
+            salesperson_name = (
+                salesperson.display_name if salesperson else "Unassigned"
+            )
+            currency_name = currency.name if currency else env.company.currency_id.name
+            revenue = revenue or 0.0
+            grouped_rows.append({
+                "salesperson_id": salesperson.id if salesperson else None,
+                "salesperson": salesperson_name,
+                "currency": currency_name,
+                "order_count": order_count,
+                "revenue": revenue,
+            })
+            total = totals_by_currency.setdefault(
+                currency_name,
+                {"currency": currency_name, "order_count": 0, "revenue": 0.0},
+            )
+            total["order_count"] += order_count
+            total["revenue"] += revenue
+
+        # A salesperson can appear once per currency. Never rank across
+        # currencies because the amounts are not directly comparable.
+        grouped_rows.sort(
+            key=lambda row: (
+                row["currency"],
+                -row["revenue"],
+                row["salesperson"].casefold(),
+            )
+        )
+        previous_currency = None
+        rank = 0
+        for row in grouped_rows:
+            if row["currency"] != previous_currency:
+                previous_currency = row["currency"]
+                rank = 1
+            else:
+                rank += 1
+            row["rank_within_currency"] = rank
+
+        return {
+            "date_from": date_from,
+            "date_to": date_to,
+            "currency_totals": sorted(
+                totals_by_currency.values(),
+                key=lambda row: row["currency"],
+            ),
+            "salespeople": grouped_rows,
+            "ranking_basis": "revenue_within_currency",
+        }
+
     @staticmethod
     def get_customer_sales_history_report(env, customer_query, limit=5):
         """Return lifetime sales totals and recent orders for one customer.

@@ -1272,7 +1272,7 @@ class TestOdooTools(TransactionCase):
         buckets = {row["bucket"]: row for row in result["aging"]}
         overdue_total = sum(
             row["amount_due"]
-            for row in buckets["1_30_days"]["currency_totals"]
+            for row in buckets["31_60_days"]["currency_totals"]
         )
         self.assertEqual(overdue_total, 250.0)
         current_total = sum(

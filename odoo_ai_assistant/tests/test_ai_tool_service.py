@@ -1084,3 +1084,109 @@ class TestOdooAIToolService(TransactionCase):
             ["date_from", "date_to", "limit"],
         )
         self.assertTrue(report_tools[0]["strict"])
+
+    @patch(f"{PATCH_PATH}.OdooTools")
+    @patch(f"{PATCH_PATH}.OdooAIService._get_client")
+    def test_successful_customer_sales_history_report(
+        self,
+        mock_get_client,
+        mock_odoo_tools,
+    ):
+        mock_get_client.return_value = self.mock_client
+        report_call = self._function_call(
+            name="get_customer_sales_history_report",
+            arguments={
+                "customer_query": "Lifetime Example Ltd.",
+                "limit": 5,
+            },
+        )
+        mock_odoo_tools.get_customer_sales_history_report.return_value = {
+            "customer": {"id": 81, "name": "Lifetime Example Ltd."},
+            "lifetime_totals": [{
+                "currency": "INR",
+                "order_count": 4,
+                "lifetime_revenue": 85000.0,
+            }],
+            "first_order_date": "2024-01-15T10:00:00",
+            "last_order_date": "2026-10-01T12:00:00",
+            "returned_order_count": 1,
+            "recent_orders": [{
+                "id": 91,
+                "name": "S00091",
+                "date_order": "2026-10-01T12:00:00",
+                "state": "sale",
+                "amount_total": 25000.0,
+                "currency": "INR",
+            }],
+        }
+        self.mock_client.responses.create.side_effect = [
+            self._response(output=[report_call]),
+            self._response(
+                output_text="Lifetime Example Ltd. has placed 4 orders worth INR 85,000."
+            ),
+        ]
+
+        answer = OdooAIToolService.ask(
+            self.env,
+            "Show lifetime sales history for Lifetime Example Ltd.",
+        )
+
+        self.assertEqual(
+            answer,
+            "Lifetime Example Ltd. has placed 4 orders worth INR 85,000.",
+        )
+        mock_odoo_tools.get_customer_sales_history_report.assert_called_once_with(
+            self.env,
+            customer_query="Lifetime Example Ltd.",
+            limit=5,
+        )
+        second_request = self.mock_client.responses.create.call_args_list[1]
+        tool_outputs = [
+            item for item in second_request.kwargs["input"]
+            if isinstance(item, dict)
+            and item.get("type") == "function_call_output"
+        ]
+        payload = json.loads(tool_outputs[0]["output"])
+        self.assertEqual(
+            payload["type"],
+            "untrusted_customer_sales_history_report",
+        )
+        self.assertEqual(payload["data"]["lifetime_totals"][0]["order_count"], 4)
+
+    def test_customer_sales_history_report_tool_is_registered(self):
+        report_tools = [
+            tool for tool in OdooAIToolService.TOOLS
+            if tool.get("name") == "get_customer_sales_history_report"
+        ]
+        self.assertEqual(len(report_tools), 1)
+        self.assertEqual(
+            report_tools[0]["parameters"]["required"],
+            ["customer_query", "limit"],
+        )
+        self.assertTrue(report_tools[0]["strict"])
+
+    @patch(f"{PATCH_PATH}.OdooAIService._get_client")
+    def test_customer_sales_history_report_rejects_invalid_arguments(
+        self,
+        mock_get_client,
+    ):
+        mock_get_client.return_value = self.mock_client
+        report_call = self._function_call(
+            name="get_customer_sales_history_report",
+            arguments={
+                "customer_query": "Lifetime Example Ltd.",
+                "limit": True,
+            },
+        )
+        self.mock_client.responses.create.return_value = (
+            self._response(output=[report_call])
+        )
+        with self.assertRaisesRegex(
+            UserError,
+            "Odoo data lookup could not be completed",
+        ):
+            OdooAIToolService.ask(
+                self.env,
+                "Show lifetime sales history for Lifetime Example Ltd.",
+            )
+

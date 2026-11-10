@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from odoo.exceptions import AccessError, UserError
 
@@ -513,11 +513,15 @@ class OdooTools:
         rows = []
         totals_by_currency = {}
         for period_value, currency_record, order_count, revenue in grouped_values:
-            period = (
-                period_value.isoformat()
-                if hasattr(period_value, "isoformat")
-                else str(period_value)
-            )
+            # Odoo's date_order date grouping can return a midnight
+            # datetime. Report buckets are calendar dates, so serialize them
+            # consistently as YYYY-MM-DD rather than including a time suffix.
+            if isinstance(period_value, datetime):
+                period = period_value.date().isoformat()
+            elif hasattr(period_value, "isoformat"):
+                period = period_value.isoformat()
+            else:
+                period = str(period_value)
             currency_name = currency_record.name if currency_record else None
             rows.append({
                 "period": period,

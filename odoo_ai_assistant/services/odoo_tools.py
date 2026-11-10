@@ -551,3 +551,93 @@ class OdooTools:
             "currency_totals": currency_totals,
             "periods": rows,
         }
+
+    @staticmethod
+    def get_top_selling_products_report(
+        env, date_from, date_to, limit=5
+    ):
+        """Rank products by confirmed sales quantity for a bounded period.
+
+        Revenue is reported per transaction currency and is never combined
+        across currencies. ORM aggregation enforces the current user's access
+        rights and record rules on sales lines and products.
+        """
+        if env.su:
+            raise AccessError(
+                "AI product reporting cannot run in superuser mode."
+            )
+
+        if not isinstance(date_from, str) or not isinstance(date_to, str):
+            raise UserError("Report dates must use YYYY-MM-DD format.")
+        try:
+            start_date = date.fromisoformat(date_from)
+            end_date = date.fromisoformat(date_to)
+        except ValueError:
+            raise UserError("Report dates must use YYYY-MM-DD format.") from None
+
+        if start_date.isoformat() != date_from or end_date.isoformat() != date_to:
+            raise UserError("Report dates must use YYYY-MM-DD format.")
+        if end_date < start_date:
+            raise UserError("The report end date must not be before the start date.")
+        if (end_date - start_date).days > 365:
+            raise UserError("The report date range cannot exceed 366 days.")
+        if (
+            not isinstance(limit, int)
+            or isinstance(limit, bool)
+            or not 1 <= limit <= 10
+        ):
+            raise UserError("Product report limit must be between 1 and 10.")
+
+        SaleLine = env["sale.order.line"]
+        Product = env["product.product"]
+        SaleLine.check_access("read")
+        Product.check_access("read")
+        end_exclusive = end_date + timedelta(days=1)
+        domain = [
+            ("order_id.state", "in", ["sale", "done"]),
+            ("order_id.date_order", ">=", f"{date_from} 00:00:00"),
+            ("order_id.date_order", "<", f"{end_exclusive.isoformat()} 00:00:00"),
+            ("order_id.company_id", "=", env.company.id),
+            ("display_type", "=", False),
+            ("product_id", "!=", False),
+        ]
+        grouped_values = SaleLine._read_group(
+            domain,
+            groupby=["product_id", "product_uom_id", "currency_id"],
+            aggregates=[
+                "__count",
+                "product_uom_qty:sum",
+                "price_subtotal:sum",
+            ],
+        )
+
+        products = []
+        for product, uom, currency, line_count, quantity, revenue in grouped_values:
+            if not product:
+                continue
+            products.append({
+                "product_id": product.id,
+                "product": product.display_name,
+                "default_code": product.default_code or None,
+                "quantity_sold": quantity or 0.0,
+                "uom": uom.name if uom else None,
+                "sales_line_count": line_count,
+                "revenue": revenue or 0.0,
+                "currency": currency.name if currency else None,
+            })
+
+        # Rank by quantity, never by revenue across unlike currencies.
+        products.sort(
+            key=lambda item: (
+                -item["quantity_sold"],
+                item["product"].casefold(),
+                item["currency"] or "",
+            )
+        )
+        return {
+            "date_from": date_from,
+            "date_to": date_to,
+            "ranking": "quantity_sold",
+            "returned_count": min(len(products), limit),
+            "products": products[:limit],
+        }

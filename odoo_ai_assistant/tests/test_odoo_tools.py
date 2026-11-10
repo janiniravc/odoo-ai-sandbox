@@ -936,3 +936,148 @@ class TestOdooTools(TransactionCase):
             sum(item["order_count"] for item in result["currency_totals"]),
             0,
         )
+
+
+    # ---------------------------------------------------------
+    # Top-selling products reporting tests
+    # ---------------------------------------------------------
+
+    def _create_product_sales_order(self, order_name, order_date, product_quantities):
+        order = self._create_sales_order(order_name)
+        for product, quantity in product_quantities:
+            self.env["sale.order.line"].create({
+                "order_id": order.id,
+                "product_id": product.id,
+                "name": product.display_name,
+                "product_uom_id": product.uom_id.id,
+                "product_uom_qty": quantity,
+                "price_unit": product.lst_price,
+            })
+        order.action_confirm()
+        order.write({"date_order": f"{order_date} 12:00:00"})
+        return order
+
+    def test_top_selling_products_report_ranks_confirmed_quantity(self):
+        product_a = self.env["product.product"].create({
+            "name": "AI Top Seller Product A",
+            "sale_ok": True,
+            "list_price": 100.0,
+        })
+        product_b = self.env["product.product"].create({
+            "name": "AI Top Seller Product B",
+            "sale_ok": True,
+            "list_price": 50.0,
+        })
+        self._create_product_sales_order(
+            "AI-TOP-SELLER-ORDER-1",
+            "2026-03-10",
+            [(product_a, 2), (product_b, 5)],
+        )
+        self._create_product_sales_order(
+            "AI-TOP-SELLER-ORDER-2",
+            "2026-03-20",
+            [(product_a, 4)],
+        )
+
+        result = OdooTools.get_top_selling_products_report(
+            self.user_env,
+            "2026-03-01",
+            "2026-03-31",
+            limit=5,
+        )
+        self.assertEqual(result["ranking"], "quantity_sold")
+        self.assertEqual(result["returned_count"], 2)
+        self.assertEqual(result["products"][0]["product_id"], product_a.id)
+        self.assertEqual(result["products"][0]["quantity_sold"], 6.0)
+        self.assertEqual(result["products"][1]["product_id"], product_b.id)
+        self.assertEqual(result["products"][1]["quantity_sold"], 5.0)
+        self.assertTrue(result["products"][0]["revenue_by_currency"])
+        self.assertTrue(result["products"][0]["uom"])
+
+    def test_top_selling_products_report_excludes_draft_and_out_of_range(self):
+        product = self.env["product.product"].create({
+            "name": "AI Top Seller Date Filter Product",
+            "sale_ok": True,
+            "list_price": 25.0,
+        })
+        draft = self._create_sales_order("AI-TOP-SELLER-DRAFT")
+        self.env["sale.order.line"].create({
+            "order_id": draft.id,
+            "product_id": product.id,
+            "name": product.display_name,
+            "product_uom_id": product.uom_id.id,
+            "product_uom_qty": 99,
+            "price_unit": product.lst_price,
+        })
+        self._create_product_sales_order(
+            "AI-TOP-SELLER-OUTSIDE",
+            "2026-04-01",
+            [(product, 7)],
+        )
+        self._create_product_sales_order(
+            "AI-TOP-SELLER-INCLUDED",
+            "2026-03-15",
+            [(product, 3)],
+        )
+        result = OdooTools.get_top_selling_products_report(
+            self.user_env,
+            "2026-03-01",
+            "2026-03-31",
+        )
+        self.assertEqual(result["returned_count"], 1)
+        self.assertEqual(result["products"][0]["quantity_sold"], 3.0)
+
+    def test_top_selling_products_report_rejects_superuser(self):
+        with self.assertRaises(AccessError):
+            OdooTools.get_top_selling_products_report(
+                self.env(su=True),
+                "2026-03-01",
+                "2026-03-31",
+            )
+
+    def test_top_selling_products_report_validates_dates_and_limit(self):
+        invalid_cases = [
+            ("2026-04-01", "2026-03-01", 5),
+            ("not-a-date", "2026-03-31", 5),
+            ("2025-03-01", "2026-03-02", 5),
+            ("2026-03-01", "2026-03-31", 0),
+            ("2026-03-01", "2026-03-31", 11),
+            ("2026-03-01", "2026-03-31", True),
+        ]
+        for date_from, date_to, limit in invalid_cases:
+            with self.subTest(date_from=date_from, date_to=date_to, limit=limit):
+                with self.assertRaises(UserError):
+                    OdooTools.get_top_selling_products_report(
+                        self.user_env,
+                        date_from,
+                        date_to,
+                        limit=limit,
+                    )
+
+    def test_top_selling_products_report_respects_sales_line_record_rules(self):
+        product = self.env["product.product"].create({
+            "name": "AI Restricted Top Seller Product",
+            "sale_ok": True,
+            "list_price": 10.0,
+        })
+        order = self._create_product_sales_order(
+            "AI-TOP-SELLER-RESTRICTED",
+            "2026-03-15",
+            [(product, 8)],
+        )
+        line = order.order_line.filtered(lambda item: item.product_id == product)
+        self.env["ir.rule"].create({
+            "name": "Temporary AI top-selling line restriction",
+            "model_id": self.env["ir.model"]._get_id("sale.order.line"),
+            "domain_force": "[('id', '!=', %d)]" % line.id,
+            "groups": [(5, 0, 0)],
+        })
+        result = OdooTools.get_top_selling_products_report(
+            self.user_env,
+            "2026-03-01",
+            "2026-03-31",
+        )
+        self.assertNotIn(
+            product.id,
+            [row["product_id"] for row in result["products"]],
+        )

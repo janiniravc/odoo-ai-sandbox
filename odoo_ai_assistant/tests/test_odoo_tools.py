@@ -991,7 +991,7 @@ class TestOdooTools(TransactionCase):
         self.assertEqual(result["products"][0]["quantity_sold"], 6.0)
         self.assertEqual(result["products"][1]["product_id"], product_b.id)
         self.assertEqual(result["products"][1]["quantity_sold"], 5.0)
-        self.assertTrue(result["products"][0]["currency"])
+        self.assertTrue(result["products"][0]["revenue_by_currency"])
         self.assertTrue(result["products"][0]["uom"])
 
     def test_top_selling_products_report_excludes_draft_and_out_of_range(self):

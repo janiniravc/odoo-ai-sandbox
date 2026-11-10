@@ -819,3 +819,119 @@ class TestOdooTools(TransactionCase):
             999999.0,
             [row["expected_revenue"] for row in result["groups"]],
         )
+
+
+    # ---------------------------------------------------------
+    # Sales performance reporting tests
+    # ---------------------------------------------------------
+
+    def _create_confirmed_sales_order(self, name, order_date, state="sale"):
+        order = self._create_sales_order(name)
+        order.write({"date_order": f"{order_date} 12:00:00"})
+        if state == "sale":
+            order.action_confirm()
+        elif state == "done":
+            order.action_confirm()
+            order.write({"state": "done"})
+        return order
+
+    def test_sales_performance_report_groups_confirmed_orders_by_month(self):
+        first = self._create_confirmed_sales_order(
+            "AI-REPORT-SALE-2026-01", "2026-01-15"
+        )
+        second = self._create_confirmed_sales_order(
+            "AI-REPORT-SALE-2026-02", "2026-02-10"
+        )
+        result = OdooTools.get_sales_performance_report(
+            self.user_env,
+            "2026-01-01",
+            "2026-02-28",
+            "month",
+        )
+        self.assertEqual(result["date_from"], "2026-01-01")
+        self.assertEqual(result["date_to"], "2026-02-28")
+        self.assertEqual(result["group_by"], "month")
+        self.assertTrue(result["currency_totals"])
+        self.assertEqual(
+            sum(item["order_count"] for item in result["currency_totals"]),
+            2,
+        )
+        self.assertEqual(
+            {row["period"] for row in result["periods"]},
+            {"2026-01-01", "2026-02-01"},
+        )
+        self.assertEqual(
+            sum(row["order_count"] for row in result["periods"]),
+            2,
+        )
+
+    def test_sales_performance_report_excludes_draft_cancelled_and_out_of_range(self):
+        draft = self._create_sales_order("AI-REPORT-DRAFT")
+        draft.write({"date_order": "2026-01-15 12:00:00"})
+        cancelled = self._create_sales_order("AI-REPORT-CANCEL")
+        cancelled.write({"date_order": "2026-01-16 12:00:00"})
+        cancelled.action_cancel()
+        outside = self._create_confirmed_sales_order(
+            "AI-REPORT-OUTSIDE", "2026-02-01"
+        )
+        included = self._create_confirmed_sales_order(
+            "AI-REPORT-INCLUDED", "2026-01-20"
+        )
+        result = OdooTools.get_sales_performance_report(
+            self.user_env,
+            "2026-01-01",
+            "2026-01-31",
+        )
+        self.assertEqual(
+            sum(item["order_count"] for item in result["currency_totals"]),
+            1,
+        )
+        self.assertEqual(
+            sum(item["order_count"] for item in result["periods"]),
+            1,
+        )
+
+    def test_sales_performance_report_rejects_superuser(self):
+        with self.assertRaises(AccessError):
+            OdooTools.get_sales_performance_report(
+                self.env(su=True),
+                "2026-01-01",
+                "2026-01-31",
+            )
+
+    def test_sales_performance_report_validates_dates_and_grouping(self):
+        invalid_cases = [
+            ("2026-02-01", "2026-01-01", "month"),
+            ("not-a-date", "2026-01-31", "month"),
+            ("2026-01-01", "2026-01-31", "year"),
+            ("2025-01-01", "2026-01-02", "month"),
+        ]
+        for date_from, date_to, group_by in invalid_cases:
+            with self.subTest(date_from=date_from, date_to=date_to, group_by=group_by):
+                with self.assertRaises(UserError):
+                    OdooTools.get_sales_performance_report(
+                        self.user_env,
+                        date_from,
+                        date_to,
+                        group_by,
+                    )
+
+    def test_sales_performance_report_respects_record_rules(self):
+        order = self._create_confirmed_sales_order(
+            "AI-REPORT-RESTRICTED", "2026-01-20"
+        )
+        self.env["ir.rule"].create({
+            "name": "Temporary AI sales report restriction",
+            "model_id": self.env["ir.model"]._get_id("sale.order"),
+            "domain_force": "[('id', '!=', %d)]" % order.id,
+            "groups": [(5, 0, 0)],
+        })
+        result = OdooTools.get_sales_performance_report(
+            self.user_env,
+            "2026-01-01",
+            "2026-01-31",
+        )
+        self.assertEqual(
+            sum(item["order_count"] for item in result["currency_totals"]),
+            0,
+        )

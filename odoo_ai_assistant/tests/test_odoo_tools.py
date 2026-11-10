@@ -827,11 +827,12 @@ class TestOdooTools(TransactionCase):
 
     def _create_confirmed_sales_order(self, name, order_date, state="sale"):
         order = self._create_sales_order(name)
-        order.write({"date_order": f"{order_date} 12:00:00"})
-        if state == "sale":
+        if state in ("sale", "done"):
             order.action_confirm()
-        elif state == "done":
-            order.action_confirm()
+            # Confirmation can update date_order; set the fixture date after
+            # confirming so the report date-domain tests are deterministic.
+            order.write({"date_order": f"{order_date} 12:00:00"})
+        if state == "done":
             order.write({"state": "done"})
         return order
 

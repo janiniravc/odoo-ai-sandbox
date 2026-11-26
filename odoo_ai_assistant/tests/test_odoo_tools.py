@@ -1678,30 +1678,29 @@ class TestOdooTools(TransactionCase):
         })
         if state == "purchase":
             order.button_confirm()
-        elif state == "done":
-            order.button_confirm()
-            order.write({"state": "done"})
         return order
 
     def test_purchase_performance_report_ranks_vendors_and_totals(self):
-        vendor_a = self.env["res.partner"].create({"name": "AI Purchase Vendor A", "supplier_rank": 1})
-        vendor_b = self.env["res.partner"].create({"name": "AI Purchase Vendor B", "supplier_rank": 1})
-        self._create_purchase_performance_order(vendor_a, "2026-03-10", 300.0)
-        self._create_purchase_performance_order(vendor_a, "2026-03-11", 200.0)
-        self._create_purchase_performance_order(vendor_b, "2026-03-12", 100.0)
+        vendor_a = self.env["res.partner"].create({"name": "AI Purchase Vendor A"})
+        vendor_b = self.env["res.partner"].create({"name": "AI Purchase Vendor B"})
+        order_a1 = self._create_purchase_performance_order(vendor_a, "2026-03-10", 300.0)
+        order_a2 = self._create_purchase_performance_order(vendor_a, "2026-03-11", 200.0)
+        order_b = self._create_purchase_performance_order(vendor_b, "2026-03-12", 100.0)
+        expected_total = order_a1.amount_total + order_a2.amount_total + order_b.amount_total
+        expected_vendor_a = order_a1.amount_total + order_a2.amount_total
         result = OdooTools.get_purchase_performance_report(
             self.user_env, "2026-03-01", "2026-03-31", 5
         )
         currency = self.env.company.currency_id.name
         totals = {row["currency"]: row for row in result["currency_totals"]}
         self.assertEqual(totals[currency]["order_count"], 3)
-        self.assertEqual(totals[currency]["purchase_amount"], 600.0)
-        self.assertEqual(totals[currency]["average_order_value"], 200.0)
+        self.assertAlmostEqual(totals[currency]["purchase_amount"], expected_total)
+        self.assertAlmostEqual(totals[currency]["average_order_value"], expected_total / 3)
         vendors = result["vendors"]
         self.assertEqual(vendors[0]["vendor_id"], vendor_a.id)
         self.assertEqual(vendors[0]["order_count"], 2)
-        self.assertEqual(vendors[0]["purchase_amount"], 500.0)
-        self.assertEqual(vendors[0]["average_order_value"], 250.0)
+        self.assertAlmostEqual(vendors[0]["purchase_amount"], expected_vendor_a)
+        self.assertAlmostEqual(vendors[0]["average_order_value"], expected_vendor_a / 2)
         self.assertEqual(vendors[0]["rank_within_currency"], 1)
         self.assertEqual(vendors[1]["vendor_id"], vendor_b.id)
         self.assertEqual(vendors[1]["rank_within_currency"], 2)
@@ -1709,7 +1708,7 @@ class TestOdooTools(TransactionCase):
         self.assertEqual(result["purchase_scope"], "confirmed_purchase_orders")
 
     def test_purchase_performance_report_filters_dates_and_unconfirmed_orders(self):
-        vendor = self.env["res.partner"].create({"name": "AI Purchase Filter Vendor", "supplier_rank": 1})
+        vendor = self.env["res.partner"].create({"name": "AI Purchase Filter Vendor"})
         draft = self._create_purchase_performance_order(vendor, "2026-03-10", 900.0, state="draft")
         outside = self._create_purchase_performance_order(vendor, "2026-04-01", 800.0)
         included = self._create_purchase_performance_order(vendor, "2026-03-15", 100.0)
@@ -1756,7 +1755,7 @@ class TestOdooTools(TransactionCase):
             )
 
     def test_purchase_performance_report_respects_record_rules(self):
-        vendor = self.env["res.partner"].create({"name": "AI Purchase Restricted Vendor", "supplier_rank": 1})
+        vendor = self.env["res.partner"].create({"name": "AI Purchase Restricted Vendor"})
         order = self._create_purchase_performance_order(vendor, "2026-03-15", 100.0)
         self.env["ir.rule"].create({
             "name": "Temporary AI purchase report restriction",

@@ -987,9 +987,10 @@ class TestOdooTools(TransactionCase):
         )
         self.assertEqual(result["ranking_basis"], "revenue_within_currency")
         self.assertEqual(result["customers"][0]["customer_id"], customer_a.id)
-        self.assertEqual(result["customers"][0]["revenue"], 500.0)
+        # Odoo's default customer tax is included in amount_total.
+        self.assertEqual(result["customers"][0]["revenue"], 575.0)
         self.assertEqual(result["customers"][0]["order_count"], 2)
-        self.assertEqual(result["customers"][0]["average_order_value"], 250.0)
+        self.assertEqual(result["customers"][0]["average_order_value"], 287.5)
         self.assertEqual(result["customers"][0]["rank_within_currency"], 1)
         self.assertEqual(result["customers"][1]["rank_within_currency"], 2)
 

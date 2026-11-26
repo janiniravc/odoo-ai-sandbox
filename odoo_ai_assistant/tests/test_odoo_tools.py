@@ -40,6 +40,8 @@ class TestOdooTools(TransactionCase):
         invoice_user_group.write({"user_ids": [(4, cls.test_user.id)]})
         stock_user_group = cls.env.ref("stock.group_stock_user")
         stock_user_group.write({"user_ids": [(4, cls.test_user.id)]})
+        purchase_user_group = cls.env.ref("purchase.group_purchase_user")
+        purchase_user_group.write({"user_ids": [(4, cls.test_user.id)]})
 
         cls.user_env = cls.env(
             user=cls.test_user.id,
@@ -1657,17 +1659,19 @@ class TestOdooTools(TransactionCase):
     # ---------------------------------------------------------
 
     def _create_purchase_performance_order(self, vendor, order_date, amount, state="purchase"):
+        product = self.env["product.product"].create({
+            "name": "AI Purchase Performance Product",
+            "purchase_ok": True,
+        })
         order = self.env["purchase.order"].create({
             "partner_id": vendor.id,
             "company_id": self.env.company.id,
             "date_order": f"{order_date} 12:00:00",
             "order_line": [(0, 0, {
                 "name": "AI purchase performance test item",
-                "product_id": self.env["product.product"].create({
-                    "name": "AI Purchase Performance Product",
-                    "purchase_ok": True,
-                }).id,
+                "product_id": product.id,
                 "product_qty": 1,
+                "product_uom": product.uom_po_id.id,
                 "price_unit": amount,
                 "date_planned": f"{order_date} 12:00:00",
             })],

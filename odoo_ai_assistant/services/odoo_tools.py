@@ -1362,3 +1362,119 @@ class OdooTools:
             "recent_orders": recent_orders,
         }
 
+
+
+    @staticmethod
+    def get_purchase_performance_report(env, date_from, date_to, limit=10):
+        """Rank vendors by confirmed purchase spend without combining currencies."""
+        if env.su:
+            raise AccessError("AI purchase reporting cannot run in superuser mode.")
+        if not isinstance(date_from, str) or not isinstance(date_to, str):
+            raise UserError("Report dates must use YYYY-MM-DD format.")
+        try:
+            start_date = date.fromisoformat(date_from)
+            end_date = date.fromisoformat(date_to)
+        except ValueError:
+            raise UserError("Report dates must use YYYY-MM-DD format.") from None
+        if start_date.isoformat() != date_from or end_date.isoformat() != date_to:
+            raise UserError("Report dates must use YYYY-MM-DD format.")
+        if end_date < start_date:
+            raise UserError("The report end date must not be before the start date.")
+        if (end_date - start_date).days > 365:
+            raise UserError("The report date range cannot exceed 366 days.")
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 10:
+            raise UserError("Purchase report limit must be between 1 and 10.")
+
+        orders = env["purchase.order"]
+        orders.check_access("read")
+        env["res.partner"].check_access("read")
+        end_exclusive = end_date + timedelta(days=1)
+        domain = [
+            ("state", "in", ["purchase", "done"]),
+            ("date_order", ">=", f"{date_from} 00:00:00"),
+            ("date_order", "<", f"{end_exclusive.isoformat()} 00:00:00"),
+            ("company_id", "=", env.company.id),
+        ]
+        matching_count = orders.search_count(domain)
+        if matching_count > 5000:
+            raise UserError(
+                "The purchase report contains more than 5,000 orders. "
+                "Please use a shorter date range."
+            )
+
+        grouped = orders._read_group(
+            domain,
+            groupby=["partner_id", "currency_id"],
+            aggregates=["__count", "amount_total:sum"],
+        )
+        vendors_by_key = {}
+        totals_by_currency = {}
+        for vendor, currency, order_count, amount_total in grouped:
+            if not vendor:
+                continue
+            commercial_vendor = vendor.commercial_partner_id
+            vendor_id = commercial_vendor.id
+            vendor_name = commercial_vendor.display_name
+            currency_name = currency.name if currency else env.company.currency_id.name
+            key = (vendor_id, currency_name)
+            row = vendors_by_key.setdefault(key, {
+                "vendor_id": vendor_id,
+                "vendor": vendor_name,
+                "currency": currency_name,
+                "order_count": 0,
+                "purchase_amount": 0.0,
+            })
+            row["order_count"] += order_count
+            row["purchase_amount"] += amount_total or 0.0
+
+            currency_total = totals_by_currency.setdefault(currency_name, {
+                "currency": currency_name,
+                "order_count": 0,
+                "purchase_amount": 0.0,
+            })
+            currency_total["order_count"] += order_count
+            currency_total["purchase_amount"] += amount_total or 0.0
+
+        vendors_by_currency = {}
+        for row in vendors_by_key.values():
+            row["average_order_value"] = (
+                row["purchase_amount"] / row["order_count"]
+                if row["order_count"] else 0.0
+            )
+            vendors_by_currency.setdefault(row["currency"], []).append(row)
+
+        vendor_rows = []
+        for currency_name, rows in vendors_by_currency.items():
+            rows.sort(key=lambda row: (-row["purchase_amount"], row["vendor"].casefold()))
+            for rank, row in enumerate(rows, start=1):
+                row["rank_within_currency"] = rank
+            vendor_rows.extend(rows[:limit])
+
+        for row in totals_by_currency.values():
+            row["average_order_value"] = (
+                row["purchase_amount"] / row["order_count"]
+                if row["order_count"] else 0.0
+            )
+
+        vendor_rows.sort(
+            key=lambda row: (
+                row["currency"],
+                row["rank_within_currency"],
+                row["vendor"].casefold(),
+            )
+        )
+        return {
+            "date_from": date_from,
+            "date_to": date_to,
+            "purchase_scope": "confirmed_purchase_orders",
+            "ranking_basis": "purchase_amount_within_currency",
+            "currency_totals": sorted(
+                totals_by_currency.values(), key=lambda row: row["currency"]
+            ),
+            "vendor_count": len(vendor_rows),
+            "vendors": vendor_rows,
+            "note": (
+                "Purchase amounts use purchase order totals including taxes. "
+                "Amounts and rankings are kept separate by transaction currency."
+            ),
+        }

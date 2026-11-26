@@ -40,6 +40,8 @@ class TestOdooTools(TransactionCase):
         invoice_user_group.write({"user_ids": [(4, cls.test_user.id)]})
         stock_user_group = cls.env.ref("stock.group_stock_user")
         stock_user_group.write({"user_ids": [(4, cls.test_user.id)]})
+        purchase_user_group = cls.env.ref("purchase.group_purchase_user")
+        purchase_user_group.write({"user_ids": [(4, cls.test_user.id)]})
 
         cls.user_env = cls.env(
             user=cls.test_user.id,
@@ -1649,3 +1651,120 @@ class TestOdooTools(TransactionCase):
                     OdooTools.get_delivery_performance_report(
                         self.user_env, date_from, date_to
                     )
+
+
+
+    # ---------------------------------------------------------
+    # Purchase performance report tests
+    # ---------------------------------------------------------
+
+    def _create_purchase_performance_order(self, vendor, order_date, amount, state="purchase"):
+        product = self.env["product.product"].create({
+            "name": "AI Purchase Performance Product",
+            "purchase_ok": True,
+        })
+        order = self.env["purchase.order"].create({
+            "partner_id": vendor.id,
+            "company_id": self.env.company.id,
+            "date_order": f"{order_date} 12:00:00",
+            "order_line": [(0, 0, {
+                "name": "AI purchase performance test item",
+                "product_id": product.id,
+                "product_qty": 1,
+                "product_uom": product.uom_po_id.id,
+                "price_unit": amount,
+                "date_planned": f"{order_date} 12:00:00",
+            })],
+        })
+        if state == "purchase":
+            order.button_confirm()
+        return order
+
+    def test_purchase_performance_report_ranks_vendors_and_totals(self):
+        vendor_a = self.env["res.partner"].create({"name": "AI Purchase Vendor A"})
+        vendor_b = self.env["res.partner"].create({"name": "AI Purchase Vendor B"})
+        order_a1 = self._create_purchase_performance_order(vendor_a, "2026-03-10", 300.0)
+        order_a2 = self._create_purchase_performance_order(vendor_a, "2026-03-11", 200.0)
+        order_b = self._create_purchase_performance_order(vendor_b, "2026-03-12", 100.0)
+        expected_total = order_a1.amount_total + order_a2.amount_total + order_b.amount_total
+        expected_vendor_a = order_a1.amount_total + order_a2.amount_total
+        result = OdooTools.get_purchase_performance_report(
+            self.user_env, "2026-03-01", "2026-03-31", 5
+        )
+        currency = self.env.company.currency_id.name
+        totals = {row["currency"]: row for row in result["currency_totals"]}
+        self.assertEqual(totals[currency]["order_count"], 3)
+        self.assertAlmostEqual(totals[currency]["purchase_amount"], expected_total)
+        self.assertAlmostEqual(totals[currency]["average_order_value"], expected_total / 3)
+        vendors = result["vendors"]
+        self.assertEqual(vendors[0]["vendor_id"], vendor_a.id)
+        self.assertEqual(vendors[0]["order_count"], 2)
+        self.assertAlmostEqual(vendors[0]["purchase_amount"], expected_vendor_a)
+        self.assertAlmostEqual(vendors[0]["average_order_value"], expected_vendor_a / 2)
+        self.assertEqual(vendors[0]["rank_within_currency"], 1)
+        self.assertEqual(vendors[1]["vendor_id"], vendor_b.id)
+        self.assertEqual(vendors[1]["rank_within_currency"], 2)
+        self.assertEqual(result["ranking_basis"], "purchase_amount_within_currency")
+        self.assertEqual(result["purchase_scope"], "confirmed_purchase_orders")
+
+    def test_purchase_performance_report_filters_dates_and_unconfirmed_orders(self):
+        vendor = self.env["res.partner"].create({"name": "AI Purchase Filter Vendor"})
+        draft = self._create_purchase_performance_order(vendor, "2026-03-10", 900.0, state="draft")
+        outside = self._create_purchase_performance_order(vendor, "2026-04-01", 800.0)
+        included = self._create_purchase_performance_order(vendor, "2026-03-15", 100.0)
+        result = OdooTools.get_purchase_performance_report(
+            self.user_env, "2026-03-01", "2026-03-31"
+        )
+        self.assertEqual(result["currency_totals"][0]["order_count"], 1)
+        self.assertEqual(result["vendors"][0]["purchase_amount"], included.amount_total)
+        self.assertNotEqual(draft.id, included.id)
+        self.assertNotEqual(outside.id, included.id)
+
+    def test_purchase_performance_report_empty_result(self):
+        result = OdooTools.get_purchase_performance_report(
+            self.user_env, "2026-03-01", "2026-03-31"
+        )
+        self.assertEqual(result["currency_totals"], [])
+        self.assertEqual(result["vendors"], [])
+        self.assertEqual(result["vendor_count"], 0)
+
+    def test_purchase_performance_report_validates_dates_and_limit(self):
+        for date_from, date_to in (
+            ("", "2026-03-31"),
+            ("2026-3-01", "2026-03-31"),
+            ("2026-04-01", "2026-03-31"),
+            ("2025-03-01", "2026-03-02"),
+            (20260301, "2026-03-31"),
+        ):
+            with self.subTest(date_from=date_from, date_to=date_to):
+                with self.assertRaises(UserError):
+                    OdooTools.get_purchase_performance_report(
+                        self.user_env, date_from, date_to
+                    )
+        for limit in (0, 11, True, "5"):
+            with self.subTest(limit=limit):
+                with self.assertRaises(UserError):
+                    OdooTools.get_purchase_performance_report(
+                        self.user_env, "2026-03-01", "2026-03-31", limit
+                    )
+
+    def test_purchase_performance_report_rejects_superuser(self):
+        with self.assertRaises(AccessError):
+            OdooTools.get_purchase_performance_report(
+                self.env(su=True), "2026-03-01", "2026-03-31"
+            )
+
+    def test_purchase_performance_report_respects_record_rules(self):
+        vendor = self.env["res.partner"].create({"name": "AI Purchase Restricted Vendor"})
+        order = self._create_purchase_performance_order(vendor, "2026-03-15", 100.0)
+        self.env["ir.rule"].create({
+            "name": "Temporary AI purchase report restriction",
+            "model_id": self.env["ir.model"]._get_id("purchase.order"),
+            "domain_force": "[('id', '!=', %d)]" % order.id,
+            "groups": [(5, 0, 0)],
+        })
+        result = OdooTools.get_purchase_performance_report(
+            self.user_env, "2026-03-01", "2026-03-31"
+        )
+        self.assertEqual(result["currency_totals"], [])
+        self.assertEqual(result["vendors"], [])

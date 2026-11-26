@@ -5,7 +5,7 @@
     "category": "Productivity",
     "license": "LGPL-3",
     "author": "Nio Digital",
-    "depends": ["base", "product", "sale", "account", "crm", "sale_stock"],
+    "depends": ["base", "product", "sale", "account", "crm", "sale_stock", "purchase"],
     "data": [
         "security/security.xml",
         "security/ir.model.access.csv",

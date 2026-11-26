@@ -425,6 +425,7 @@ class TestOdooTools(TransactionCase):
     def _create_sales_order(self, name, customer_name="AI Sales Order Customer"):
         partner = self.env["res.partner"].create({"name": customer_name})
         return self.env["sale.order"].create({
+            "picking_policy": "direct",
             "name": name,
             "partner_id": partner.id,
             # Sales order record rules commonly restrict access to orders
@@ -952,6 +953,7 @@ class TestOdooTools(TransactionCase):
             "list_price": amount,
         })
         order = self.env["sale.order"].create({
+            "picking_policy": "direct",
             "name": order_name,
             "partner_id": customer.id,
             "user_id": self.test_user.id,
@@ -1169,12 +1171,14 @@ class TestOdooTools(TransactionCase):
             "is_company": True,
         })
         first = self.env["sale.order"].create({
+            "picking_policy": "direct",
             "partner_id": customer.id,
             "user_id": self.test_user.id,
         })
         first.action_confirm()
         first.write({"date_order": "2025-01-15 12:00:00"})
         second = self.env["sale.order"].create({
+            "picking_policy": "direct",
             "partner_id": customer.id,
             "user_id": self.test_user.id,
         })
@@ -1212,15 +1216,18 @@ class TestOdooTools(TransactionCase):
             "is_company": True,
         })
         draft = self.env["sale.order"].create({
+            "picking_policy": "direct",
             "partner_id": customer.id,
             "user_id": self.test_user.id,
         })
         cancelled = self.env["sale.order"].create({
+            "picking_policy": "direct",
             "partner_id": customer.id,
             "user_id": self.test_user.id,
         })
         cancelled.action_cancel()
         confirmed = self.env["sale.order"].create({
+            "picking_policy": "direct",
             "partner_id": customer.id,
             "user_id": self.test_user.id,
         })
@@ -1286,6 +1293,7 @@ class TestOdooTools(TransactionCase):
             "is_company": True,
         })
         order = self.env["sale.order"].create({
+            "picking_policy": "direct",
             "partner_id": customer.id,
             "user_id": self.test_user.id,
         })
@@ -1430,6 +1438,7 @@ class TestOdooTools(TransactionCase):
 
     def _create_salesperson_order(self, name, salesperson, order_date, amount):
         order = self.env["sale.order"].create({
+            "picking_policy": "direct",
             "partner_id": self.partner.id,
             "user_id": salesperson.id if salesperson else False,
         })

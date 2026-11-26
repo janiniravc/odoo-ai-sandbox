@@ -927,6 +927,136 @@ class OdooTools:
 
 
     @staticmethod
+    def get_delivery_performance_report(env, date_from, date_to):
+        """Report completed outgoing delivery timeliness for the current company.
+
+        Delivery completion dates are filtered inclusively. A delivery is on
+        time when its completion timestamp is not later than its scheduled
+        timestamp. Records without a scheduled timestamp are reported
+        separately and excluded from the on-time percentage.
+        """
+        if env.su:
+            raise AccessError("AI delivery reporting cannot run in superuser mode.")
+        if not isinstance(date_from, str) or not isinstance(date_to, str):
+            raise UserError("Report dates must use YYYY-MM-DD format.")
+        try:
+            start_date, end_date = date.fromisoformat(date_from), date.fromisoformat(date_to)
+        except ValueError:
+            raise UserError("Report dates must use YYYY-MM-DD format.") from None
+        if start_date.isoformat() != date_from or end_date.isoformat() != date_to:
+            raise UserError("Report dates must use YYYY-MM-DD format.")
+        if end_date < start_date:
+            raise UserError("The report end date must not be before the start date.")
+        if (end_date - start_date).days > 365:
+            raise UserError("The report date range cannot exceed 366 days.")
+
+        Picking = env["stock.picking"]
+        Picking.check_access("read")
+        env["res.partner"].check_access("read")
+        end_exclusive = end_date + timedelta(days=1)
+        domain = [
+            ("picking_type_id.code", "=", "outgoing"),
+            ("state", "=", "done"),
+            ("date_done", ">=", f"{date_from} 00:00:00"),
+            ("date_done", "<", f"{end_exclusive.isoformat()} 00:00:00"),
+            ("company_id", "=", env.company.id),
+        ]
+        total_matching = Picking.search_count(domain)
+        # Refuse to produce misleading partial KPIs for very large datasets.
+        if total_matching > 5000:
+            raise UserError(
+                "The delivery report contains more than 5,000 records. "
+                "Please use a shorter date range."
+            )
+        pickings = Picking.search(
+            domain, order="date_done asc, id asc"
+        )
+
+        totals = {
+            "completed_deliveries": 0,
+            "on_time_deliveries": 0,
+            "late_deliveries": 0,
+            "without_scheduled_date": 0,
+            "total_late_days": 0.0,
+        }
+        customers = {}
+        for picking in pickings:
+            done_at = picking.date_done
+            scheduled_at = picking.scheduled_date
+            partner = picking.partner_id
+            partner_id = partner.id if partner else False
+            partner_name = partner.display_name if partner else "Unknown customer"
+            row = customers.setdefault(partner_id, {
+                "customer_id": partner_id,
+                "customer": partner_name,
+                "completed_deliveries": 0,
+                "on_time_deliveries": 0,
+                "late_deliveries": 0,
+                "without_scheduled_date": 0,
+                "_late_days": 0.0,
+            })
+            totals["completed_deliveries"] += 1
+            row["completed_deliveries"] += 1
+            if not scheduled_at or not done_at:
+                totals["without_scheduled_date"] += 1
+                row["without_scheduled_date"] += 1
+                continue
+            delay_days = (done_at - scheduled_at).total_seconds() / 86400.0
+            if delay_days <= 0:
+                totals["on_time_deliveries"] += 1
+                row["on_time_deliveries"] += 1
+            else:
+                totals["late_deliveries"] += 1
+                totals["total_late_days"] += delay_days
+                row["late_deliveries"] += 1
+                row["_late_days"] += delay_days
+
+        eligible = totals["on_time_deliveries"] + totals["late_deliveries"]
+        totals["on_time_percentage"] = (
+            round(totals["on_time_deliveries"] * 100.0 / eligible, 2)
+            if eligible else None
+        )
+        totals["average_late_days"] = (
+            round(totals["total_late_days"] / totals["late_deliveries"], 2)
+            if totals["late_deliveries"] else 0.0
+        )
+        totals.pop("total_late_days")
+        customer_rows = []
+        for row in customers.values():
+            eligible_customer = row["on_time_deliveries"] + row["late_deliveries"]
+            row["on_time_percentage"] = (
+                round(row["on_time_deliveries"] * 100.0 / eligible_customer, 2)
+                if eligible_customer else None
+            )
+            row["average_late_days"] = (
+                round(row.pop("_late_days") / row["late_deliveries"], 2)
+                if row["late_deliveries"] else 0.0
+            )
+            if "_late_days" in row:
+                row.pop("_late_days")
+            customer_rows.append(row)
+        customer_rows.sort(
+            key=lambda row: (
+                row["on_time_percentage"] is None,
+                -(row["on_time_percentage"] or 0),
+                row["customer"].casefold(),
+            )
+        )
+        return {
+            "date_from": date_from,
+            "date_to": date_to,
+            "delivery_scope": "completed_outgoing_deliveries",
+            "totals": totals,
+            "customer_count": len(customer_rows),
+            "customers": customer_rows,
+            "note": (
+                "On-time percentage excludes deliveries without a scheduled date. "
+                "A delivery is on time when date_done is less than or equal to "
+                "scheduled_date."
+            ),
+        }
+
+    @staticmethod
     def get_sales_by_product_category_report(env, date_from, date_to, limit=10):
         """Rank categories by confirmed sales revenue; never combine currencies."""
         if env.su:

@@ -255,6 +255,33 @@ class OdooAIToolService:
 
         {
             "type": "function",
+            "name": "get_delivery_performance_report",
+            "description": (
+                "Report completed outgoing delivery performance for the current company "
+                "over an inclusive completion-date range. Compare date_done with "
+                "scheduled_date; include on-time and late counts, on-time percentage, "
+                "average late days, and customer breakdown. Exclude deliveries without "
+                "a scheduled date from the on-time percentage."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "date_from": {
+                        "type": "string",
+                        "description": "Start completion date inclusive in YYYY-MM-DD format.",
+                    },
+                    "date_to": {
+                        "type": "string",
+                        "description": "End completion date inclusive in YYYY-MM-DD format.",
+                    },
+                },
+                "required": ["date_from", "date_to"],
+                "additionalProperties": False,
+            },
+            "strict": True,
+        },
+        {
+            "type": "function",
             "name": "get_sales_by_product_category_report",
             "description": "Rank product categories by confirmed sales revenue in an inclusive date range. Return product count, sales-line count, and revenue by transaction currency. Never combine currencies.",
             "parameters": {
@@ -527,6 +554,15 @@ class OdooAIToolService:
                             limit=limit,
                         )
                         data_type = "untrusted_outstanding_receivables_report"
+                    elif tool_call.name == "get_delivery_performance_report":
+                        if set(arguments) != {"date_from", "date_to"}:
+                            raise ValueError("Unexpected delivery performance arguments.")
+                        date_from = arguments["date_from"]
+                        date_to = arguments["date_to"]
+                        result = OdooTools.get_delivery_performance_report(
+                            env, date_from=date_from, date_to=date_to,
+                        )
+                        data_type = "untrusted_delivery_performance_report"
                     elif tool_call.name == "get_sales_by_product_category_report":
                         if set(arguments) != {"date_from", "date_to", "limit"}:
                             raise ValueError("Unexpected category report arguments.")
@@ -620,6 +656,7 @@ class OdooAIToolService:
                         "get_salesperson_performance_report",
                         "get_top_customers_report",
                         "get_sales_by_product_category_report",
+                        "get_delivery_performance_report",
                     ):
                         pass
                     elif tool_call.name == "lookup_customers":

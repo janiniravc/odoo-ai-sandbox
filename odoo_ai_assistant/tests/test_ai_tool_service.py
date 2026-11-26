@@ -1501,3 +1501,68 @@ class TestOdooAIToolService(TransactionCase):
         self.mock_client.responses.create.return_value = self._response(output=[call])
         with self.assertRaises(UserError):
             OdooAIToolService.ask(self.env, "Show sales by product category for March 2026.")
+
+    @patch(f"{PATCH_PATH}.OdooTools")
+    @patch(f"{PATCH_PATH}.OdooAIService._get_client")
+    def test_successful_delivery_performance_report(self, mock_get_client, mock_tools):
+        mock_get_client.return_value = self.mock_client
+        call = self._function_call(
+            name="get_delivery_performance_report",
+            arguments={"date_from": "2026-03-01", "date_to": "2026-03-31"},
+        )
+        mock_tools.get_delivery_performance_report.return_value = {
+            "totals": {
+                "completed_deliveries": 10,
+                "on_time_deliveries": 8,
+                "late_deliveries": 2,
+                "on_time_percentage": 80.0,
+                "average_late_days": 1.5,
+            },
+            "customers": [],
+        }
+        self.mock_client.responses.create.side_effect = [
+            self._response(output=[call]),
+            self._response(output_text="8 of 10 deliveries were on time."),
+        ]
+        answer = OdooAIToolService.ask(
+            self.env, "Show delivery performance for March 2026."
+        )
+        self.assertEqual(answer, "8 of 10 deliveries were on time.")
+        mock_tools.get_delivery_performance_report.assert_called_once_with(
+            self.env, date_from="2026-03-01", date_to="2026-03-31"
+        )
+        second_request = self.mock_client.responses.create.call_args_list[1]
+        tool_outputs = [
+            item for item in second_request.kwargs["input"]
+            if isinstance(item, dict) and item.get("type") == "function_call_output"
+        ]
+        payload = json.loads(tool_outputs[0]["output"])
+        self.assertEqual(payload["type"], "untrusted_delivery_performance_report")
+
+    def test_delivery_performance_report_tool_is_registered(self):
+        tool = next(
+            t for t in OdooAIToolService.TOOLS
+            if t["name"] == "get_delivery_performance_report"
+        )
+        self.assertTrue(tool["strict"])
+        self.assertEqual(
+            set(tool["parameters"]["required"]), {"date_from", "date_to"}
+        )
+        self.assertFalse(tool["parameters"]["additionalProperties"])
+
+    @patch(f"{PATCH_PATH}.OdooAIService._get_client")
+    def test_delivery_performance_report_rejects_extra_arguments(self, mock_get_client):
+        mock_get_client.return_value = self.mock_client
+        call = self._function_call(
+            name="get_delivery_performance_report",
+            arguments={
+                "date_from": "2026-03-01",
+                "date_to": "2026-03-31",
+                "company_id": 1,
+            },
+        )
+        self.mock_client.responses.create.return_value = self._response(output=[call])
+        with self.assertRaises(UserError):
+            OdooAIToolService.ask(
+                self.env, "Show delivery performance for March 2026."
+            )

@@ -925,6 +925,90 @@ class OdooTools:
             "customers": top_customers,
         }
 
+
+    @staticmethod
+    def get_sales_by_product_category_report(env, date_from, date_to, limit=10):
+        """Rank categories by confirmed sales revenue; never combine currencies."""
+        if env.su:
+            raise AccessError("AI category sales reporting cannot run in superuser mode.")
+        if not isinstance(date_from, str) or not isinstance(date_to, str):
+            raise UserError("Report dates must use YYYY-MM-DD format.")
+        try:
+            start_date, end_date = date.fromisoformat(date_from), date.fromisoformat(date_to)
+        except ValueError:
+            raise UserError("Report dates must use YYYY-MM-DD format.") from None
+        if start_date.isoformat() != date_from or end_date.isoformat() != date_to:
+            raise UserError("Report dates must use YYYY-MM-DD format.")
+        if end_date < start_date:
+            raise UserError("The report end date must not be before the start date.")
+        if (end_date - start_date).days > 365:
+            raise UserError("The report date range cannot exceed 366 days.")
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 10:
+            raise UserError("Category report limit must be between 1 and 10.")
+
+        lines = env["sale.order.line"]
+        env["product.product"].check_access("read")
+        env["product.category"].check_access("read")
+        lines.check_access("read")
+        end_exclusive = end_date + timedelta(days=1)
+        domain = [
+            ("order_id.state", "in", ["sale", "done"]),
+            ("order_id.date_order", ">=", f"{date_from} 00:00:00"),
+            ("order_id.date_order", "<", f"{end_exclusive.isoformat()} 00:00:00"),
+            ("order_id.company_id", "=", env.company.id),
+            ("product_id", "!=", False),
+        ]
+        grouped = lines._read_group(
+            domain, groupby=["product_id", "currency_id"],
+            aggregates=["__count", "price_total:sum"],
+        )
+        by_category, totals = {}, {}
+        for product, currency, line_count, revenue in grouped:
+            if not product:
+                continue
+            category = product.categ_id
+            cid = category.id if category else None
+            cname = category.display_name if category else "Uncategorized"
+            curr = currency.name if currency else env.company.currency_id.name
+            key = (cid, curr)
+            row = by_category.setdefault(key, {
+                "category_id": cid, "category": cname, "currency": curr,
+                "_products": set(), "sales_line_count": 0, "revenue": 0.0,
+            })
+            row["_products"].add(product.id)
+            row["sales_line_count"] += line_count
+            row["revenue"] += revenue or 0.0
+            total = totals.setdefault(curr, {
+                "currency": curr, "category_count": 0,
+                "sales_line_count": 0, "revenue": 0.0,
+            })
+            total["sales_line_count"] += line_count
+            total["revenue"] += revenue or 0.0
+
+        currency_groups = {}
+        for row in by_category.values():
+            row["product_count"] = len(row.pop("_products"))
+            currency_groups.setdefault(row["currency"], []).append(row)
+        result_rows = []
+        for curr, rows in sorted(currency_groups.items()):
+            rows.sort(key=lambda x: (-x["revenue"], x["category"].casefold()))
+            rank = 0
+            previous = None
+            for index, row in enumerate(rows, 1):
+                if previous is None or row["revenue"] != previous:
+                    rank, previous = index, row["revenue"]
+                row["rank_within_currency"] = rank
+                if index <= limit:
+                    result_rows.append(row)
+            totals[curr]["category_count"] = len(rows)
+        return {
+            "date_from": date_from, "date_to": date_to,
+            "ranking_basis": "revenue_within_currency",
+            "limit_per_currency": limit,
+            "currency_totals": sorted(totals.values(), key=lambda x: x["currency"]),
+            "categories": result_rows,
+        }
+
     @staticmethod
     def get_salesperson_performance_report(env, date_from, date_to):
         """Compare salesperson order counts and revenue over a date range.

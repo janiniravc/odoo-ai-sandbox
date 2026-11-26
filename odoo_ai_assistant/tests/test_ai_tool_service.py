@@ -1597,3 +1597,39 @@ class TestOdooAIToolService(TransactionCase):
             OdooAIToolService.ask(
                 self.env, "Show purchase performance for March 2026."
             )
+
+
+    @patch(f"{PATCH_PATH}.OdooTools")
+    @patch(f"{PATCH_PATH}.OdooAIService._get_client")
+    def test_successful_purchase_performance_report(self, mock_get_client, mock_tools):
+        mock_get_client.return_value = self.mock_client
+        call = self._function_call(
+            name="get_purchase_performance_report",
+            arguments={
+                "date_from": "2026-03-01",
+                "date_to": "2026-03-31",
+                "limit": 5,
+            },
+        )
+        mock_tools.get_purchase_performance_report.return_value = {
+            "currency_totals": [{"currency": "USD", "order_count": 2, "purchase_amount": 500.0}],
+            "vendors": [],
+        }
+        self.mock_client.responses.create.side_effect = [
+            self._response(output=[call]),
+            self._response(output_text="Purchase spend was USD 500."),
+        ]
+        answer = OdooAIToolService.ask(
+            self.env, "Show purchase performance for March 2026."
+        )
+        self.assertEqual(answer, "Purchase spend was USD 500.")
+        mock_tools.get_purchase_performance_report.assert_called_once_with(
+            self.env, date_from="2026-03-01", date_to="2026-03-31", limit=5
+        )
+        second_request = self.mock_client.responses.create.call_args_list[1]
+        tool_outputs = [
+            item for item in second_request.kwargs["input"]
+            if isinstance(item, dict) and item.get("type") == "function_call_output"
+        ]
+        payload = json.loads(tool_outputs[0]["output"])
+        self.assertEqual(payload["type"], "untrusted_purchase_performance_report")

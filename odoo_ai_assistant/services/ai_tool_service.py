@@ -265,7 +265,7 @@ class OdooAIToolService:
                     "limit": {"type": "integer", "description": "Maximum categories per currency, from 1 to 10."}
                 },
                 "required": ["date_from", "date_to", "limit"],
-                "additionalProperties": false
+                "additionalProperties": False
             },
             "strict": true
         },

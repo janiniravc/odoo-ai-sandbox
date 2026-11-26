@@ -1621,3 +1621,29 @@ class TestOdooTools(TransactionCase):
             self.user_env, "2026-03-01", "2026-03-31"
         )
         self.assertNotIn(cat.id, [row["category_id"] for row in result["categories"]])
+
+    def test_delivery_performance_report_empty_result_and_scope(self):
+        result = OdooTools.get_delivery_performance_report(
+            self.user_env, "2026-03-01", "2026-03-31"
+        )
+        self.assertEqual(result["delivery_scope"], "completed_outgoing_deliveries")
+        self.assertEqual(result["totals"]["completed_deliveries"], 0)
+        self.assertEqual(result["totals"]["on_time_deliveries"], 0)
+        self.assertIsNone(result["totals"]["on_time_percentage"])
+        self.assertEqual(result["customers"], [])
+
+    def test_delivery_performance_report_rejects_superuser_and_invalid_dates(self):
+        with self.assertRaises(AccessError):
+            OdooTools.get_delivery_performance_report(
+                self.env(su=True), "2026-03-01", "2026-03-31"
+            )
+        for date_from, date_to in [
+            ("bad", "2026-03-31"),
+            ("2026-04-01", "2026-03-31"),
+            ("2025-03-01", "2026-03-02"),
+        ]:
+            with self.subTest(date_from=date_from, date_to=date_to):
+                with self.assertRaises(UserError):
+                    OdooTools.get_delivery_performance_report(
+                        self.user_env, date_from, date_to
+                    )

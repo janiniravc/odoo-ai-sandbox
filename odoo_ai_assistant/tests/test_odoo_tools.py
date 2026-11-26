@@ -939,6 +939,80 @@ class TestOdooTools(TransactionCase):
 
 
     # ---------------------------------------------------------
+
+    # Top-customer performance reporting tests
+    # ---------------------------------------------------------
+
+    def _create_customer_performance_order(self, order_name, customer, order_date, amount):
+        product = self.env["product.product"].create({
+            "name": "AI Customer Performance Service",
+            "type": "service",
+            "list_price": amount,
+        })
+        order = self.env["sale.order"].create({
+            "name": order_name,
+            "partner_id": customer.id,
+            "user_id": self.test_user.id,
+        })
+        self.env["sale.order.line"].create({
+            "order_id": order.id,
+            "product_id": product.id,
+            "name": product.display_name,
+            "product_uom_id": product.uom_id.id,
+            "product_uom_qty": 1,
+            "price_unit": amount,
+        })
+        order.action_confirm()
+        order.write({"date_order": f"{order_date} 12:00:00"})
+        return order
+
+    def test_top_customers_report_ranks_revenue_and_calculates_average(self):
+        customer_a = self.env["res.partner"].create({
+            "name": "AI Top Customer A", "is_company": True,
+        })
+        customer_b = self.env["res.partner"].create({
+            "name": "AI Top Customer B", "is_company": True,
+        })
+        self._create_customer_performance_order(
+            "AI-TOP-CUSTOMER-1", customer_a, "2026-03-10", 300.0
+        )
+        self._create_customer_performance_order(
+            "AI-TOP-CUSTOMER-2", customer_a, "2026-03-20", 200.0
+        )
+        self._create_customer_performance_order(
+            "AI-TOP-CUSTOMER-3", customer_b, "2026-03-15", 250.0
+        )
+        result = OdooTools.get_top_customers_report(
+            self.user_env, "2026-03-01", "2026-03-31", limit=5
+        )
+        self.assertEqual(result["ranking_basis"], "revenue_within_currency")
+        self.assertEqual(result["customers"][0]["customer_id"], customer_a.id)
+        self.assertEqual(result["customers"][0]["revenue"], 500.0)
+        self.assertEqual(result["customers"][0]["order_count"], 2)
+        self.assertEqual(result["customers"][0]["average_order_value"], 250.0)
+        self.assertEqual(result["customers"][0]["rank_within_currency"], 1)
+        self.assertEqual(result["customers"][1]["rank_within_currency"], 2)
+
+    def test_top_customers_report_rejects_superuser_and_invalid_arguments(self):
+        with self.assertRaises(AccessError):
+            OdooTools.get_top_customers_report(
+                self.env(su=True), "2026-03-01", "2026-03-31"
+            )
+        invalid_cases = [
+            ("2026-04-01", "2026-03-01", 5),
+            ("invalid", "2026-03-31", 5),
+            ("2025-03-01", "2026-03-02", 5),
+            ("2026-03-01", "2026-03-31", 0),
+            ("2026-03-01", "2026-03-31", 11),
+            ("2026-03-01", "2026-03-31", True),
+        ]
+        for date_from, date_to, limit in invalid_cases:
+            with self.subTest(date_from=date_from, date_to=date_to, limit=limit):
+                with self.assertRaises(UserError):
+                    OdooTools.get_top_customers_report(
+                        self.user_env, date_from, date_to, limit=limit
+                    )
+
     # Top-selling products reporting tests
     # ---------------------------------------------------------
 

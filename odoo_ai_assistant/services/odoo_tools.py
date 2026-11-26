@@ -810,6 +810,121 @@ class OdooTools:
         }
 
 
+
+    @staticmethod
+    def get_top_customers_report(env, date_from, date_to, limit=10):
+        """Rank customers by confirmed sales revenue over a bounded period.
+
+        Orders are restricted to the current company and inclusive date range.
+        Contacts are consolidated under their commercial partner. Results and
+        rankings remain separated by transaction currency; the limit applies
+        independently to each currency. ORM aggregation enforces access rights
+        and record rules for the current user.
+        """
+        if env.su:
+            raise AccessError(
+                "AI customer performance reporting cannot run in superuser mode."
+            )
+
+        if not isinstance(date_from, str) or not isinstance(date_to, str):
+            raise UserError("Report dates must use YYYY-MM-DD format.")
+        try:
+            start_date = date.fromisoformat(date_from)
+            end_date = date.fromisoformat(date_to)
+        except ValueError:
+            raise UserError("Report dates must use YYYY-MM-DD format.") from None
+        if start_date.isoformat() != date_from or end_date.isoformat() != date_to:
+            raise UserError("Report dates must use YYYY-MM-DD format.")
+        if end_date < start_date:
+            raise UserError("The report end date must not be before the start date.")
+        if (end_date - start_date).days > 365:
+            raise UserError("The report date range cannot exceed 366 days.")
+        if (
+            not isinstance(limit, int)
+            or isinstance(limit, bool)
+            or not 1 <= limit <= 10
+        ):
+            raise UserError("Customer report limit must be between 1 and 10.")
+
+        SaleOrder = env["sale.order"]
+        Partner = env["res.partner"]
+        SaleOrder.check_access("read")
+        Partner.check_access("read")
+        end_exclusive = end_date + timedelta(days=1)
+        domain = [
+            ("state", "in", ["sale", "done"]),
+            ("date_order", ">=", f"{date_from} 00:00:00"),
+            ("date_order", "<", f"{end_exclusive.isoformat()} 00:00:00"),
+            ("company_id", "=", env.company.id),
+            ("partner_id", "!=", False),
+        ]
+        grouped_values = SaleOrder._read_group(
+            domain,
+            groupby=["partner_id", "currency_id"],
+            aggregates=["__count", "amount_total:sum"],
+        )
+
+        consolidated = {}
+        totals_by_currency = {}
+        for partner, currency, order_count, revenue in grouped_values:
+            if not partner:
+                continue
+            commercial_partner = partner.commercial_partner_id
+            currency_name = currency.name if currency else env.company.currency_id.name
+            key = (commercial_partner.id, currency_name)
+            if key not in consolidated:
+                consolidated[key] = {
+                    "customer_id": commercial_partner.id,
+                    "customer": commercial_partner.display_name,
+                    "currency": currency_name,
+                    "order_count": 0,
+                    "revenue": 0.0,
+                }
+            row = consolidated[key]
+            row["order_count"] += order_count
+            row["revenue"] += revenue or 0.0
+
+            total = totals_by_currency.setdefault(
+                currency_name,
+                {"currency": currency_name, "customer_count": 0,
+                 "order_count": 0, "revenue": 0.0},
+            )
+            total["order_count"] += order_count
+            total["revenue"] += revenue or 0.0
+
+        by_currency = {}
+        for row in consolidated.values():
+            row["average_order_value"] = (
+                row["revenue"] / row["order_count"]
+                if row["order_count"] else 0.0
+            )
+            by_currency.setdefault(row["currency"], []).append(row)
+
+        top_customers = []
+        for currency_name, rows in sorted(by_currency.items()):
+            rows.sort(key=lambda row: (-row["revenue"], row["customer"].casefold()))
+            previous_revenue = None
+            current_rank = 0
+            for index, row in enumerate(rows, start=1):
+                if previous_revenue is None or row["revenue"] != previous_revenue:
+                    current_rank = index
+                    previous_revenue = row["revenue"]
+                row["rank_within_currency"] = current_rank
+                if index <= limit:
+                    top_customers.append(row)
+            totals_by_currency[currency_name]["customer_count"] = len(rows)
+
+        return {
+            "date_from": date_from,
+            "date_to": date_to,
+            "ranking_basis": "revenue_within_currency",
+            "limit_per_currency": limit,
+            "currency_totals": sorted(
+                totals_by_currency.values(), key=lambda row: row["currency"]
+            ),
+            "customers": top_customers,
+        }
+
     @staticmethod
     def get_salesperson_performance_report(env, date_from, date_to):
         """Compare salesperson order counts and revenue over a date range.

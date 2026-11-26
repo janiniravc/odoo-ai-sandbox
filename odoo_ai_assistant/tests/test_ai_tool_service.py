@@ -1287,6 +1287,82 @@ class TestOdooAIToolService(TransactionCase):
 
 
 
+
+    @patch(f"{PATCH_PATH}.OdooTools")
+    @patch(f"{PATCH_PATH}.OdooAIService._get_client")
+    def test_successful_top_customers_report(self, mock_get_client, mock_odoo_tools):
+        mock_get_client.return_value = self.mock_client
+        report_call = self._function_call(
+            name="get_top_customers_report",
+            arguments={
+                "date_from": "2026-03-01",
+                "date_to": "2026-03-31",
+                "limit": 5,
+            },
+        )
+        mock_odoo_tools.get_top_customers_report.return_value = {
+            "ranking_basis": "revenue_within_currency",
+            "limit_per_currency": 5,
+            "currency_totals": [{
+                "currency": "INR", "customer_count": 1,
+                "order_count": 2, "revenue": 500.0,
+            }],
+            "customers": [{
+                "customer_id": 81, "customer": "Top Customer Ltd.",
+                "currency": "INR", "order_count": 2, "revenue": 500.0,
+                "average_order_value": 250.0, "rank_within_currency": 1,
+            }],
+        }
+        self.mock_client.responses.create.side_effect = [
+            self._response(output=[report_call]),
+            self._response(output_text="Top Customer Ltd. generated INR 500."),
+        ]
+        answer = OdooAIToolService.ask(
+            self.env, "Show the top customers for March 2026."
+        )
+        self.assertEqual(answer, "Top Customer Ltd. generated INR 500.")
+        mock_odoo_tools.get_top_customers_report.assert_called_once_with(
+            self.env, date_from="2026-03-01", date_to="2026-03-31", limit=5
+        )
+        second_request = self.mock_client.responses.create.call_args_list[1]
+        tool_outputs = [
+            item for item in second_request.kwargs["input"]
+            if isinstance(item, dict) and item.get("type") == "function_call_output"
+        ]
+        payload = json.loads(tool_outputs[0]["output"])
+        self.assertEqual(payload["type"], "untrusted_top_customers_report")
+        self.assertEqual(payload["data"]["customers"][0]["average_order_value"], 250.0)
+
+    def test_top_customers_report_tool_is_registered(self):
+        report_tools = [
+            tool for tool in OdooAIToolService.TOOLS
+            if tool.get("name") == "get_top_customers_report"
+        ]
+        self.assertEqual(len(report_tools), 1)
+        self.assertEqual(
+            report_tools[0]["parameters"]["required"],
+            ["date_from", "date_to", "limit"],
+        )
+        self.assertTrue(report_tools[0]["strict"])
+
+    @patch(f"{PATCH_PATH}.OdooAIService._get_client")
+    def test_top_customers_report_rejects_unexpected_arguments(self, mock_get_client):
+        mock_get_client.return_value = self.mock_client
+        report_call = self._function_call(
+            name="get_top_customers_report",
+            arguments={
+                "date_from": "2026-03-01",
+                "date_to": "2026-03-31",
+                "limit": 5,
+                "unexpected": True,
+            },
+        )
+        self.mock_client.responses.create.return_value = self._response(
+            output=[report_call]
+        )
+        with self.assertRaisesRegex(UserError, "Odoo data lookup could not be completed"):
+            OdooAIToolService.ask(self.env, "Show the top customers for March 2026.")
+
     @patch(f"{PATCH_PATH}.OdooTools")
     @patch(f"{PATCH_PATH}.OdooAIService._get_client")
     def test_successful_salesperson_performance_report(

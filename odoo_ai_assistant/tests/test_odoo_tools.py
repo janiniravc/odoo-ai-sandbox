@@ -1548,3 +1548,76 @@ class TestOdooTools(TransactionCase):
         )
         self.assertEqual(result["currency_totals"], [])
         self.assertEqual(result["salespeople"], [])
+
+    
+    def _create_category_report_order(self, name, day, product_amounts):
+        order = self._create_sales_order(name)
+        for product, amount in product_amounts:
+            self.env["sale.order.line"].create({
+                "order_id": order.id, "product_id": product.id,
+                "name": product.display_name, "product_uom_id": product.uom_id.id,
+                "product_uom_qty": 1, "price_unit": amount,
+            })
+        order.action_confirm()
+        order.write({"date_order": f"{day} 12:00:00"})
+        return order
+
+    def test_sales_by_product_category_ranks_revenue(self):
+        ca = self.env["product.category"].create({"name": "AI Category A"})
+        cb = self.env["product.category"].create({"name": "AI Category B"})
+        pa = self.env["product.product"].create({"name": "AI Cat Product A", "categ_id": ca.id})
+        pa2 = self.env["product.product"].create({"name": "AI Cat Product A2", "categ_id": ca.id})
+        pb = self.env["product.product"].create({"name": "AI Cat Product B", "categ_id": cb.id})
+        self._create_category_report_order("AI-CAT-1", "2026-03-10", [(pa, 300), (pb, 100)])
+        self._create_category_report_order("AI-CAT-2", "2026-03-20", [(pa2, 200)])
+        result = OdooTools.get_sales_by_product_category_report(
+            self.user_env, "2026-03-01", "2026-03-31", 5
+        )
+        self.assertEqual(result["categories"][0]["category_id"], ca.id)
+        self.assertEqual(result["categories"][0]["revenue"], 575.0)
+        self.assertEqual(result["categories"][0]["product_count"], 2)
+        self.assertEqual(result["categories"][0]["sales_line_count"], 2)
+        self.assertEqual(result["categories"][0]["rank_within_currency"], 1)
+        self.assertEqual(result["categories"][1]["category_id"], cb.id)
+
+    def test_sales_by_product_category_filters_and_validates(self):
+        cat = self.env["product.category"].create({"name": "AI Category Filter"})
+        product = self.env["product.product"].create({"name": "AI Category Filter Product", "categ_id": cat.id})
+        draft = self._create_sales_order("AI-CAT-DRAFT")
+        self.env["sale.order.line"].create({
+            "order_id": draft.id, "product_id": product.id, "name": product.display_name,
+            "product_uom_id": product.uom_id.id, "product_uom_qty": 9, "price_unit": 10,
+        })
+        self._create_category_report_order("AI-CAT-OUT", "2026-04-01", [(product, 100)])
+        self._create_category_report_order("AI-CAT-IN", "2026-03-15", [(product, 50)])
+        result = OdooTools.get_sales_by_product_category_report(
+            self.user_env, "2026-03-01", "2026-03-31"
+        )
+        self.assertEqual(result["categories"][0]["sales_line_count"], 1)
+        with self.assertRaises(AccessError):
+            OdooTools.get_sales_by_product_category_report(
+                self.env(su=True), "2026-03-01", "2026-03-31"
+            )
+        for args in [
+            ("2026-04-01", "2026-03-01", 5), ("bad", "2026-03-31", 5),
+            ("2025-03-01", "2026-03-02", 5), ("2026-03-01", "2026-03-31", 0),
+            ("2026-03-01", "2026-03-31", 11), ("2026-03-01", "2026-03-31", True),
+        ]:
+            with self.subTest(args=args), self.assertRaises(UserError):
+                OdooTools.get_sales_by_product_category_report(self.user_env, *args)
+
+    def test_sales_by_product_category_respects_line_record_rules(self):
+        cat = self.env["product.category"].create({"name": "AI Category Restricted"})
+        product = self.env["product.product"].create({"name": "AI Category Restricted Product", "categ_id": cat.id})
+        order = self._create_category_report_order("AI-CAT-RESTRICTED", "2026-03-15", [(product, 80)])
+        line = order.order_line.filtered(lambda rec: rec.product_id == product)
+        self.env["ir.rule"].create({
+            "name": "Temporary AI category line restriction",
+            "model_id": self.env["ir.model"]._get_id("sale.order.line"),
+            "domain_force": "[('id', '!=', %d)]" % line.id,
+            "groups": [(5, 0, 0)],
+        })
+        result = OdooTools.get_sales_by_product_category_report(
+            self.user_env, "2026-03-01", "2026-03-31"
+        )
+        self.assertNotIn(cat.id, [row["category_id"] for row in result["categories"]])

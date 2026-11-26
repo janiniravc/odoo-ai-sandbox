@@ -1671,7 +1671,7 @@ class TestOdooTools(TransactionCase):
                 "name": "AI purchase performance test item",
                 "product_id": product.id,
                 "product_qty": 1,
-                "product_uom": product.uom_po_id.id,
+                #"product_uom": product.uom_id.id,
                 "price_unit": amount,
                 "date_planned": f"{order_date} 12:00:00",
             })],

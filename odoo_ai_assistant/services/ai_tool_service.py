@@ -497,6 +497,7 @@ class OdooAIToolService:
                     "get_outstanding_receivables_report",
                     "get_salesperson_performance_report", "get_top_customers_report",
                     "get_sales_by_product_category_report",
+                    "get_delivery_performance_report",
                 ):
                     raise UserError("The AI requested an unsupported tool.")
 

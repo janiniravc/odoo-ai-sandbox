@@ -1462,3 +1462,42 @@ class TestOdooAIToolService(TransactionCase):
                 self.env,
                 "Compare salesperson performance for March 2026.",
             )
+
+    
+    @patch(f"{PATCH_PATH}.OdooTools")
+    @patch(f"{PATCH_PATH}.OdooAIService._get_client")
+    def test_successful_sales_by_product_category_report(self, mock_get_client, mock_tools):
+        mock_get_client.return_value = self.mock_client
+        call = self._function_call(
+            name="get_sales_by_product_category_report",
+            arguments={"date_from": "2026-03-01", "date_to": "2026-03-31", "limit": 5},
+        )
+        self.mock_client.responses.create.side_effect = [
+            self._response(output=[call]),
+            self._response(output_text="Category A is the top category."),
+        ]
+        mock_tools.get_sales_by_product_category_report.return_value = {
+            "categories": [{"category": "Category A"}],
+        }
+        answer = OdooAIToolService.ask(self.env, "Show sales by product category for March 2026.")
+        self.assertEqual(answer, "Category A is the top category.")
+        mock_tools.get_sales_by_product_category_report.assert_called_once_with(
+            self.env, date_from="2026-03-01", date_to="2026-03-31", limit=5,
+        )
+
+    def test_sales_by_product_category_tool_is_registered(self):
+        tool = next(t for t in OdooAIToolService.TOOLS if t["name"] == "get_sales_by_product_category_report")
+        self.assertTrue(tool["strict"])
+        self.assertEqual(set(tool["parameters"]["required"]), {"date_from", "date_to", "limit"})
+        self.assertFalse(tool["parameters"]["additionalProperties"])
+
+    @patch(f"{PATCH_PATH}.OdooAIService._get_client")
+    def test_sales_by_product_category_rejects_extra_arguments(self, mock_get_client):
+        mock_get_client.return_value = self.mock_client
+        call = self._function_call(
+            name="get_sales_by_product_category_report",
+            arguments={"date_from": "2026-03-01", "date_to": "2026-03-31", "limit": 5, "company_id": 1},
+        )
+        self.mock_client.responses.create.return_value = self._response(output=[call])
+        with self.assertRaises(UserError):
+            OdooAIToolService.ask(self.env, "Show sales by product category for March 2026.")

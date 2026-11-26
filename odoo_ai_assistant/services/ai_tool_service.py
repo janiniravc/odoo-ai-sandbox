@@ -267,7 +267,7 @@ class OdooAIToolService:
                 "required": ["date_from", "date_to", "limit"],
                 "additionalProperties": False
             },
-            "strict": true
+            "strict": True
         },
         {
             "type": "function",

@@ -952,6 +952,7 @@ class OdooTools:
 
         Picking = env["stock.picking"]
         Picking.check_access("read")
+        env["res.partner"].check_access("read")
         end_exclusive = end_date + timedelta(days=1)
         domain = [
             ("picking_type_id.code", "=", "outgoing"),
